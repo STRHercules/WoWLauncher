@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Esteria Chat</title>
+  <link rel="stylesheet" href="./chat.css" />
+</head>
+<body>
+  <div class="chat-app">
+    <header class="chat-top">
+      <button id="backButton" type="button" class="ghost" hidden aria-label="Back">‹</button>
+      <div class="chat-title">
+        <strong id="chatHeading">Chats</strong>
+        <small id="chatStatus">Connecting…</small>
+      </div>
+      <button id="newGroupButton" type="button" class="ghost" aria-label="New group" title="New group chat">＋</button>
+      <button id="refreshButton" type="button" class="ghost" aria-label="Refresh" title="Refresh">⟳</button>
+    </header>
+
+    <section id="threadList" class="thread-list"></section>
+
+    <section id="conversation" class="conversation" hidden>
+      <div id="messageList" class="message-list"></div>
+      <form id="composer" class="composer">
+        <input id="messageInput" type="text" maxlength="1000" placeholder="Message" autocomplete="off" />
+        <button type="submit" id="sendButton">Send</button>
+      </form>
+    </section>
+
+    <div id="emptyState" class="empty" hidden></div>
+  </div>
+
+  <div class="dialog-backdrop" id="groupBackdrop" hidden>
+    <section class="dialog">
+      <h2>New group chat</h2>
+      <label for="groupNameInput">Group name</label>
+      <input id="groupNameInput" type="text" maxlength="40" placeholder="Weekend raid" autocomplete="off" />
+      <p class="hint">Pick the friends to include.</p>
+      <div id="groupFriendList" class="group-friends"></div>
+      <div class="dialog-actions">
+        <button id="cancelGroupButton" type="button" class="ghost">Cancel</button>
+        <button id="createGroupButton" type="button" class="primary">Create group</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="./chat.js"></script>
+</body>
+</html>

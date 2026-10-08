@@ -12,7 +12,7 @@
     <header class="titlebar" data-tauri-drag-region>
       <div class="titlebar-left" data-tauri-drag-region>
         <div class="brand" aria-label="Esteria">
-          <img src="./assets/esteria-mark.svg" alt="" class="brand-mark" />
+          <img src="./assets/esteria-icon.png" alt="" class="brand-mark" />
           <span class="brand-name">ESTERIA</span>
         </div>
 
@@ -49,17 +49,17 @@
           <span>All Games</span>
         </button>
         <button class="game-tab is-active" id="esteriaTabButton" type="button" aria-label="Esteria" data-view="home">
-          <img src="./assets/esteria-mark.svg" alt="" />
+          <img src="./assets/esteria-icon.png" alt="" />
         </button>
-        <button class="game-tab" id="armoryTabButton" type="button" aria-label="Armory" title="Armory" data-view="armory">A</button>
-        <button class="game-tab" id="databaseTabButton" type="button" aria-label="World Database" title="World Database" data-view="database">W</button>
-        <button class="game-tab" id="toolsTabButton" type="button" aria-label="Launcher Tools" title="Launcher Tools" data-view="tools">T</button>
+        <button class="game-tab" id="armoryTabButton" type="button" aria-label="Armory" title="Armory" data-view="armory"><img src="./assets/tab-armory.png" alt="" /></button>
+        <button class="game-tab" id="databaseTabButton" type="button" aria-label="World Database" title="World Database" data-view="database"><img src="./assets/tab-database.png" alt="" /></button>
+        <button class="game-tab" id="toolsTabButton" type="button" aria-label="Launcher Tools" title="Launcher Tools" data-view="tools"><img src="./assets/tab-tools.png" alt="" /></button>
       </nav>
 
       <div class="workspace">
         <aside class="game-sidebar">
           <div class="game-identity">
-            <img class="game-logo" src="./assets/esteria-wordmark.svg" alt="Esteria" />
+            <img class="game-logo" src="./assets/esteria-wordmark.png" alt="Esteria" />
             <button class="realm-badge" id="realmStatus" type="button" title="Check realm status"><span class="status-dot"></span> <span id="realmStatusText">Checking realm…</span></button>
             <div class="realm-detail" id="realmDetail">Loading server status…</div>
           </div>
@@ -261,6 +261,21 @@
               <pre id="diagnosticsOutput">Loading diagnostics…</pre>
             </div>
           </section>
+          <section class="community-section" id="communitySection" hidden>
+            <div class="section-heading">
+              <h2>Community</h2>
+              <button type="button" id="refreshCommunityButton">Refresh</button>
+            </div>
+            <div class="post-composer">
+              <textarea id="postBodyInput" rows="3" maxlength="2000" placeholder="Share an update, screenshot, or clip with your friends…"></textarea>
+              <div class="post-composer-row">
+                <button type="button" class="field-button" id="attachPostButton">Attach image or video</button>
+                <span class="post-attachment" id="postAttachmentName"></span>
+                <button type="button" class="dialog-primary" id="publishPostButton">Post</button>
+              </div>
+            </div>
+            <div class="post-feed" id="postFeed"></div>
+          </section>
         </main>
       </div>
     </section>
@@ -355,8 +370,27 @@
         </div>
         <div class="settings-options">
           <label><input id="cleanWdbInput" type="checkbox" checked /> Clean WDB before launching</label>
-          <label><input id="minimizeOnPlayInput" type="checkbox" checked /> Minimize launcher while WoW is running</label>
           <label><input id="autoUpdateAddonsInput" type="checkbox" checked /> Automatically update launcher-managed add-ons</label>
+        </div>
+        <div class="settings-grid">
+          <div>
+            <label for="closeActionSelect">When I close the launcher</label>
+            <select id="closeActionSelect" class="dialog-select">
+              <option value="ask">Ask every time</option>
+              <option value="minimize">Minimize</option>
+              <option value="tray">Minimize to the system tray</option>
+              <option value="close">Close the launcher</option>
+            </select>
+          </div>
+          <div>
+            <label for="playActionSelect">When the game starts</label>
+            <select id="playActionSelect" class="dialog-select">
+              <option value="ask">Ask every time</option>
+              <option value="minimize">Minimize the launcher</option>
+              <option value="tray">Minimize to the system tray</option>
+              <option value="keep">Leave the launcher open</option>
+            </select>
+          </div>
         </div>
         <p id="settingsLocation" class="settings-location"></p>
       </div>
@@ -385,6 +419,13 @@
         </select>
         <label for="profileStatusInput">Status message</label>
         <input id="profileStatusInput" type="text" maxlength="120" placeholder="What are you up to?" autocomplete="off" />
+        <label for="profileBioInput">Bio</label>
+        <textarea id="profileBioInput" rows="3" maxlength="400" placeholder="Tell players about your characters and playstyle"></textarea>
+        <label>Profile header</label>
+        <div class="header-actions">
+          <button class="field-button" id="headerImageButton" type="button">Set header image</button>
+          <button class="field-button" id="headerClearButton" type="button">Remove header</button>
+        </div>
         <label for="favoriteCharacterInput">Favorite character</label>
         <input id="favoriteCharacterInput" type="text" maxlength="32" placeholder="Character name" autocomplete="off" />
       </div>
@@ -481,6 +522,72 @@
           </form>
           <div class="chat-local-note" id="chatLocalNote">Chat history persists on this PC. Sign in to your Esteria account to chat with players through the server.</div>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="profileCardBackdrop" hidden>
+    <section class="settings-dialog social-dialog profile-card" role="dialog" aria-modal="true" aria-labelledby="profileCardName">
+      <button class="profile-card-close" id="profileCardCloseButton" type="button" aria-label="Close">×</button>
+      <div class="profile-card-header" id="profileCardHeader"></div>
+      <div class="profile-card-body">
+        <span class="profile-card-avatar" id="profileCardAvatar">?</span>
+        <h2 id="profileCardName">Player</h2>
+        <div class="profile-card-presence">
+          <span class="status-dot" id="profileCardDot"></span>
+          <span id="profileCardPresence">Offline</span>
+          <span class="profile-card-handle" id="profileCardHandle"></span>
+        </div>
+        <p class="profile-card-status" id="profileCardStatus"></p>
+        <p class="profile-card-bio" id="profileCardBio"></p>
+        <div class="profile-card-actions">
+          <button class="dialog-primary" id="profileCardMessageButton" type="button">Send message</button>
+          <button class="dialog-secondary" id="profileCardNicknameButton" type="button">Nickname</button>
+          <button class="dialog-secondary" id="profileCardFavoriteButton" type="button">Favorite</button>
+          <button class="dialog-danger" id="profileCardRemoveButton" type="button">Remove friend</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="context-menu" id="friendContextMenu" hidden></div>
+
+  <div class="settings-backdrop" id="closeBackdrop" hidden>
+    <section class="settings-dialog social-dialog choice-dialog" role="dialog" aria-modal="true" aria-labelledby="closeDialogTitle">
+      <div class="dialog-header">
+        <h2 id="closeDialogTitle">Close Esteria Launcher?</h2>
+      </div>
+      <div class="dialog-body">
+        <p class="choice-copy">Choose what the launcher should do. You can change this later in Game settings.</p>
+        <div class="choice-actions">
+          <button class="dialog-secondary" id="closeMinimizeButton" type="button">Minimize</button>
+          <button class="dialog-secondary" id="closeTrayButton" type="button">Minimize to tray</button>
+          <button class="dialog-danger" id="closeExitButton" type="button">Close launcher</button>
+        </div>
+        <label class="choice-remember"><input id="closeRememberInput" type="checkbox" /> Remember my choice</label>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="closeCancelButton" type="button">Cancel</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="playBackdrop" hidden>
+    <section class="settings-dialog social-dialog choice-dialog" role="dialog" aria-modal="true" aria-labelledby="playDialogTitle">
+      <div class="dialog-header">
+        <h2 id="playDialogTitle">Starting Esteria</h2>
+      </div>
+      <div class="dialog-body">
+        <p class="choice-copy">What should the launcher do while the game is running?</p>
+        <div class="choice-actions">
+          <button class="dialog-secondary" id="playMinimizeButton" type="button">Minimize</button>
+          <button class="dialog-secondary" id="playTrayButton" type="button">Minimize to tray</button>
+          <button class="dialog-secondary" id="playKeepButton" type="button">Leave it open</button>
+        </div>
+        <label class="choice-remember"><input id="playRememberInput" type="checkbox" /> Remember my choice</label>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="playCancelButton" type="button">Cancel</button>
       </div>
     </section>
   </div>

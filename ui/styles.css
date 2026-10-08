@@ -445,3 +445,58 @@ body.mode-community .feed-section .section-heading h2::after { content: " · com
 .discover-row button[disabled] { opacity: .55; cursor: default; }
 .friend-row.is-request { grid-template-columns: 39px 1fr auto; }
 .friend-accept { height: 24px; padding: 0 9px; border: 1px solid #3f6b3f; border-radius: 3px; background: #26382a; color: #bfe0bf; font-size: 10px; cursor: pointer; }
+/* Community feed, friend profile card, and friend context menu */
+.community-section { padding: 18px 22px 28px; }
+.post-composer { border: 1px solid #333a44; border-radius: 5px; background: #1c2027; padding: 12px; margin-bottom: 16px; }
+.post-composer textarea {
+  width: 100%; min-height: 62px; resize: vertical; padding: 9px 10px; border-radius: 4px;
+  border: 1px solid #333a44; background: #151a20; color: var(--text); font: inherit;
+}
+.post-composer-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.post-attachment { flex: 1; min-width: 0; color: #8a949f; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.post-feed { display: grid; gap: 12px; }
+.post-card { border: 1px solid #333a44; border-radius: 5px; background: #1b1f26; padding: 12px; }
+.post-head { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; }
+.post-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: #4d4030; color: #f0d19d; font-weight: 700; font-size: 11px; border: 1px solid #55483a; }
+.post-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.post-who { display: grid; gap: 2px; }
+.post-who strong { font-size: 12px; }
+.post-who small { color: #7f8994; font-size: 10px; }
+.post-delete { height: 24px; padding: 0 9px; border-radius: 3px; border: 1px solid #5c3a3a; background: #33262a; color: #e0b3b3; font-size: 10px; cursor: pointer; }
+.post-body { margin: 10px 0 0; white-space: pre-wrap; }
+.post-media { display: block; margin-top: 10px; max-width: 100%; max-height: 420px; border-radius: 4px; background: #10141a; }
+
+.profile-card { width: min(430px, calc(100vw - 40px)); position: relative; padding: 0; overflow: hidden; }
+.profile-card-close { position: absolute; right: 8px; top: 8px; z-index: 2; width: 26px; height: 26px; border-radius: 4px; border: 1px solid rgba(255,255,255,.22); background: rgba(10,12,16,.55); color: #fff; cursor: pointer; }
+.profile-card-header { height: 116px; background: linear-gradient(135deg, #2c3440, #1b2027) center/cover no-repeat; }
+.profile-card-header.is-empty { background-image: linear-gradient(135deg, #2c3440, #1b2027); }
+.profile-card-body { padding: 0 16px 16px; }
+.profile-card-avatar { display: grid; place-items: center; width: 68px; height: 68px; margin-top: -34px; border-radius: 50%; overflow: hidden; border: 3px solid #20242b; background: #4d4030; color: #f0d19d; font-weight: 800; }
+.profile-card-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-card h2 { margin: 10px 0 2px; font-size: 16px; }
+.profile-card-presence { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.profile-card-handle { color: #6f7a86; }
+.profile-card-status { margin: 8px 0 0; color: #cfd6de; }
+.profile-card-bio { margin: 6px 0 0; color: #96a0ab; font-size: 12px; white-space: pre-wrap; }
+.profile-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.profile-card-actions button { height: 30px; padding: 0 12px; border-radius: 3px; font-size: 11px; font-weight: 700; cursor: pointer; }
+
+.context-menu {
+  position: fixed; z-index: 60; min-width: 176px; padding: 4px;
+  border: 1px solid #3b424b; border-radius: 5px; background: #20242b; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  display: grid; gap: 2px;
+}
+.context-menu[hidden] { display: none; }
+.context-menu button { text-align: left; padding: 7px 10px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.context-menu button:hover { background: #2b313a; }
+.context-menu button.is-danger { color: #e0a2a2; }
+
+.header-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+textarea { font: inherit; }
+/* Close / play behaviour prompts */
+.choice-dialog { width: min(430px, calc(100vw - 40px)); }
+.choice-copy { margin: 0 0 12px; color: #96a0ab; font-size: 12px; }
+.choice-actions { display: grid; gap: 8px; }
+.choice-actions button { height: 34px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.choice-remember { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted); font-size: 11px; }
+.game-tab img { filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); }

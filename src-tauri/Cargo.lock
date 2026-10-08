@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "esteria-launcher"
-version = "0.3.1"
+version = "0.4.4"
 dependencies = [
  "base64 0.22.1",
  "fs2",

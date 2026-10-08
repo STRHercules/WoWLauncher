@@ -17,7 +17,8 @@ const DEFAULT_SETTINGS = {
   realmPort: 3724,
   patchList: 'planetkai.hopto.org',
   cleanWdb: true,
-  minimizeOnPlay: true
+  closeAction: 'ask',
+  playAction: 'ask'
 };
 
 const appState = {
@@ -41,6 +42,14 @@ const appState = {
   accountThreads: {},
   discoverResults: [],
   accountBusy: false,
+  chatWindowOpen: false,
+  chatWindowShown: false,
+  chatThread: '',
+  unreadTotal: null,
+  unreadByFriend: {},
+  posts: [],
+  postMedia: null,
+  friendCard: null,
   armory: [],
   database: [],
   selectedCharacter: null,
@@ -110,6 +119,7 @@ function setLauncherView(view = 'home') {
   $('#armorySection').hidden = view !== 'armory';
   $('#databaseSection').hidden = view !== 'database';
   $('#toolsSection').hidden = view !== 'tools';
+  $('#communitySection').hidden = view !== 'community';
   const showHome = view === 'home';
   $('#hero').hidden = !showHome;
   $('#newsSection').hidden = !showHome;
@@ -143,7 +153,8 @@ navButtons.forEach((button) => {
     if (button.dataset.nav === 'news') document.body.classList.add('mode-news');
     if (button.dataset.nav === 'community') {
       document.body.classList.add('mode-community');
-      openChatDialog();
+      setLauncherView('community');
+      refreshCommunity().catch((error) => console.warn('Could not load the community feed', error));
     }
     $('#mainContent').scrollTop = 0;
   });
@@ -333,6 +344,81 @@ async function accountRequest(path, { method = 'GET', body, token } = {}) {
   return payload;
 }
 
+const chatIncomingSound = new Audio('./assets/audio/incoming.mp3');
+const chatOutgoingSound = new Audio('./assets/audio/outgoing.mp3');
+chatIncomingSound.volume = 0.7;
+chatOutgoingSound.volume = 0.55;
+
+function playChatSound(kind) {
+  const audio = kind === 'outgoing' ? chatOutgoingSound : chatIncomingSound;
+  try {
+    audio.currentTime = 0;
+    const played = audio.play();
+    if (played && typeof played.catch === 'function') played.catch(() => {});
+  } catch (error) {
+    console.warn('Could not play the chat sound', error);
+  }
+}
+
+async function chatWindowHandle() {
+  const api = window.__TAURI__?.window;
+  if (!api) return null;
+  try {
+    if (typeof api.getByLabel === 'function') return await api.getByLabel('chat');
+    if (api.Window && typeof api.Window.getByLabel === 'function') return await api.Window.getByLabel('chat');
+    if (typeof api.getAllWindows === 'function') {
+      const windows = await api.getAllWindows();
+      return (windows || []).find((entry) => entry.label === 'chat') || null;
+    }
+  } catch (error) {
+    console.warn('Could not look up the chat window', error);
+  }
+  return null;
+}
+
+async function chatWindowVisible() {
+  const handle = await chatWindowHandle();
+  if (!handle) return false;
+  try {
+    return await handle.isVisible();
+  } catch {
+    return false;
+  }
+}
+
+async function requestChatAttention() {
+  const handle = await chatWindowHandle();
+  if (!handle) return;
+  try {
+    if (await handle.isFocused()) return;
+    await handle.requestUserAttention(2);
+  } catch (error) {
+    console.warn('Could not flash the chat window', error);
+  }
+}
+
+async function openChatWindow(friend = null) {
+  const handle = await chatWindowHandle();
+  if (!handle) {
+    openChatDialog(friend);
+    return;
+  }
+  try {
+    if (typeof handle.unminimize === 'function') await handle.unminimize();
+    await handle.show();
+    await handle.setFocus();
+    appState.chatWindowOpen = true;
+    // A never-shown window can still report itself as visible; only trust the check
+    // once the launcher has actually opened the popout.
+    appState.chatWindowShown = true;
+    await invokeTauri('set_pending_chat', { friend: friend || '' });
+    if (window.__TAURI__?.event?.emit) await window.__TAURI__.event.emit('chat-open', { friend });
+  } catch (error) {
+    console.warn('Could not open the chat window', error);
+    openChatDialog(friend);
+  }
+}
+
 function absoluteAvatarUrl(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;
@@ -469,7 +555,10 @@ function renderSocialPanel() {
         friend.note.toLowerCase().includes(query)
       );
     })
-    .sort((a, b) => (a.online === b.online ? 0 : a.online ? -1 : 1) || a.displayName.localeCompare(b.displayName));
+    .sort((a, b) => {
+      const rank = (friend) => (friend.favorite ? 0 : friend.online ? 1 : 2);
+      return rank(a) - rank(b) || a.displayName.localeCompare(b.displayName);
+    });
 
   const heading = document.createElement('div');
   heading.className = 'friend-group-heading';
@@ -512,7 +601,16 @@ function renderSocialPanel() {
     list.append(empty);
   }
 
+  let lastCategory = '';
   visibleFriends.forEach((friend, index) => {
+    const category = friend.favorite ? 'Favorites' : friend.online ? 'Online' : 'Offline';
+    if (category !== lastCategory) {
+      lastCategory = category;
+      const groupHeading = document.createElement('div');
+      groupHeading.className = 'friend-group-heading';
+      groupHeading.textContent = category;
+      list.append(groupHeading);
+    }
     const row = document.createElement('button');
     row.className = 'friend-row';
     row.type = 'button';
@@ -537,12 +635,12 @@ function renderSocialPanel() {
     const state = document.createElement('span');
     state.className = `friend-state ${stateValue}`;
     row.append(avatar, copy, state);
-    row.addEventListener('click', () => openChatDialog(friend.name));
+    row.addEventListener('click', () => openFriendCard(friend.name));
     row.addEventListener('dblclick', () => openArmoryFor(friend.name));
-    row.title = 'Click to chat · double-click for Armory · right-click to remove';
+    row.title = 'Click for the profile card · double-click for Armory · right-click for actions';
     row.addEventListener('contextmenu', (event) => {
       event.preventDefault();
-      removeFriend(friend.name);
+      showFriendMenu(event.clientX, event.clientY, friend.name);
     });
     list.append(row);
   });
@@ -721,7 +819,7 @@ async function signOutAccount() {
 
 async function uploadAccountAvatar() {
   if (!accountSession()) return;
-  const picked = await invokeTauri('pick_avatar');
+  const picked = await invokeTauri('pick_upload', { kind: 'avatar' });
   if (!picked) return;
   try {
     await accountRequest('/api/v2/account/avatar', {
@@ -815,7 +913,432 @@ function renderDiscoverResults() {
   });
 }
 
+// ---- friend profile card, context menu, community feed -----------------
+
+function friendRecord(name) {
+  const key = String(name).toLowerCase();
+  const remote = (appState.accountFeed?.friends || []).find((entry) => entry.username.toLowerCase() === key);
+  if (remote) {
+    return {
+      name: remote.username,
+      displayName: remote.displayName || remote.username,
+      avatarUrl: absoluteAvatarUrl(remote.avatarUrl),
+      presence: normalizePresence(remote.presence),
+      statusMessage: remote.statusMessage || '',
+      bio: remote.bio || '',
+      headerUrl: absoluteAvatarUrl(remote.headerUrl),
+      note: remote.note || '',
+      favorite: remote.favorite === true,
+      account: true
+    };
+  }
+  const local = (appState.social?.friends || []).find((entry) => entry.name.toLowerCase() === key);
+  const live = mergedPresenceRecords().get(key) || null;
+  return {
+    name: local?.name || name,
+    displayName: live?.displayName || local?.name || name,
+    avatarUrl: '',
+    presence: live ? normalizePresence(live.presence || 'online') : 'offline',
+    statusMessage: live?.statusMessage || '',
+    bio: '',
+    headerUrl: '',
+    note: local?.note || '',
+    favorite: local?.favorite === true,
+    account: false
+  };
+}
+
+async function openFriendCard(name) {
+  const record = friendRecord(name);
+  renderFriendCard(record);
+  $('#profileCardBackdrop').hidden = false;
+  if (accountSession() && record.account) {
+    try {
+      const payload = await accountRequest(`/api/v2/social/profiles/${encodeURIComponent(record.name)}`);
+      if (payload?.profile) renderFriendCard({ ...record, ...payload.profile, account: true });
+    } catch (error) {
+      console.warn('Could not load that profile', error);
+    }
+  }
+}
+
+function renderFriendCard(record) {
+  appState.friendCard = record;
+  const displayName = record.displayName || record.name;
+  $('#profileCardName').textContent = record.note ? `${record.note} (${displayName})` : displayName;
+  $('#profileCardHandle').textContent = `@${record.name}`;
+  $('#profileCardPresence').textContent = presenceLabel(record.presence);
+  $('#profileCardDot').className = `status-dot ${normalizePresence(record.presence)}`;
+  $('#profileCardStatus').textContent = record.statusMessage || '';
+  $('#profileCardBio').textContent = record.bio || 'No bio yet.';
+  const avatarUrl = absoluteAvatarUrl(record.avatarUrl);
+  const headerUrl = absoluteAvatarUrl(record.headerUrl);
+  applyAvatar($('#profileCardAvatar'), avatarUrl, displayName.slice(0, 2).toUpperCase());
+  const header = $('#profileCardHeader');
+  header.style.backgroundImage = headerUrl ? `url("${headerUrl}")` : '';
+  header.classList.toggle('is-empty', !headerUrl);
+  $('#profileCardFavoriteButton').textContent = record.favorite ? '★ Favorite' : '☆ Favorite';
+  $('#profileCardMessageButton').disabled = false;
+}
+
+function closeFriendCard() {
+  $('#profileCardBackdrop').hidden = true;
+  appState.friendCard = null;
+}
+
+function showFriendMenu(x, y, name) {
+  const menu = $('#friendContextMenu');
+  const record = friendRecord(name);
+  menu.replaceChildren();
+  const items = [
+    { label: 'View profile', run: () => openFriendCard(record.name) },
+    { label: 'Send message', run: () => openChatWindow(record.name) },
+    { label: record.note ? `Nickname: ${record.note}` : 'Set nickname…', run: () => setFriendNickname(record.name) },
+    { label: record.favorite ? '★ Remove favorite' : '☆ Add favorite', run: () => setFriendFavorite(record.name, !record.favorite) },
+    { label: 'Remove friend', run: () => removeFriend(record.name), danger: true }
+  ];
+  items.forEach((item) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    if (item.danger) button.classList.add('is-danger');
+    button.textContent = item.label;
+    button.addEventListener('click', () => {
+      hideFriendMenu();
+      item.run();
+    });
+    menu.append(button);
+  });
+  menu.hidden = false;
+  menu.style.left = `${Math.min(x, window.innerWidth - 190)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - 190)}px`;
+}
+
+function hideFriendMenu() {
+  $('#friendContextMenu').hidden = true;
+}
+
+async function setFriendNickname(name) {
+  if (!accountSession()) {
+    showToast('Sign in to your Esteria account to set nicknames.');
+    return;
+  }
+  const current = friendRecord(name).note;
+  const next = window.prompt(`Nickname for ${name}`, current);
+  if (next === null) return;
+  try {
+    appState.accountFeed = await accountRequest(`/api/v2/social/friends/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: { nickname: next.trim() }
+    });
+    renderSocialPanel();
+    if (appState.friendCard?.name?.toLowerCase() === name.toLowerCase()) renderFriendCard(friendRecord(name));
+    showToast(next.trim() ? `Nickname saved for ${name}.` : `Nickname cleared for ${name}.`);
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+async function setFriendFavorite(name, favorite) {
+  if (!accountSession()) {
+    showToast('Sign in to your Esteria account to manage favorites.');
+    return;
+  }
+  try {
+    appState.accountFeed = await accountRequest(`/api/v2/social/friends/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: { favorite }
+    });
+    renderSocialPanel();
+    if (appState.friendCard?.name?.toLowerCase() === name.toLowerCase()) renderFriendCard(friendRecord(name));
+    showToast(favorite ? `${name} is now a favorite.` : `${name} is no longer a favorite.`);
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+async function uploadHeader() {
+  if (!accountSession()) {
+    showToast('Sign in to your Esteria account to set a profile header.');
+    return;
+  }
+  const picked = await invokeTauri('pick_upload', { kind: 'header' });
+  if (!picked) return;
+  try {
+    await accountRequest('/api/v2/account/header', {
+      method: 'PUT',
+      body: { mimeType: picked.mimeType, dataBase64: picked.dataBase64 }
+    });
+    await refreshAccountFeed({ publish: false });
+    renderAccountPanel();
+    showToast('Profile header updated.');
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+async function clearHeader() {
+  if (!accountSession()) return;
+  try {
+    await accountRequest('/api/v2/account/header', { method: 'DELETE' });
+    await refreshAccountFeed({ publish: false });
+    renderAccountPanel();
+    showToast('Profile header removed.');
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+function formatPostTime(value) {
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) return '';
+  return new Date(at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+async function refreshCommunity() {
+  const feed = $('#postFeed');
+  if (!accountSession()) {
+    feed.replaceChildren();
+    const note = document.createElement('div');
+    note.className = 'empty-detail';
+    note.textContent = 'Sign in to your Esteria account to post updates friends can see.';
+    feed.append(note);
+    return;
+  }
+  try {
+    const payload = await accountRequest('/api/v2/social/posts?since=0');
+    appState.posts = Array.isArray(payload?.posts) ? payload.posts : [];
+  } catch (error) {
+    appState.posts = [];
+    console.warn('Could not load the community feed', error);
+  }
+  renderCommunity();
+}
+
+function renderCommunity() {
+  const feed = $('#postFeed');
+  feed.replaceChildren();
+  const posts = appState.posts || [];
+  if (!posts.length) {
+    const note = document.createElement('div');
+    note.className = 'empty-detail';
+    note.textContent = 'No posts yet. Share the first update.';
+    feed.append(note);
+    return;
+  }
+  const myName = accountSession()?.username || '';
+  posts.forEach((post) => {
+    const card = document.createElement('article');
+    card.className = 'post-card';
+    const head = document.createElement('div');
+    head.className = 'post-head';
+    const avatar = document.createElement('span');
+    avatar.className = 'post-avatar';
+    applyAvatar(avatar, absoluteAvatarUrl(post.author?.avatarUrl), String(post.author?.displayName || post.author?.username || '?').slice(0, 2).toUpperCase());
+    const who = document.createElement('div');
+    who.className = 'post-who';
+    const name = document.createElement('strong');
+    name.textContent = post.author?.displayName || post.author?.username || 'Unknown';
+    const meta = document.createElement('small');
+    meta.textContent = `@${post.author?.username || 'unknown'} · ${formatPostTime(post.createdAt)}`;
+    who.append(name, meta);
+    head.append(avatar, who);
+    if (post.author?.username === myName) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'post-delete';
+      remove.textContent = 'Delete';
+      remove.addEventListener('click', () => deletePost(post.id));
+      head.append(remove);
+    }
+    card.append(head);
+    if (post.body) {
+      const body = document.createElement('p');
+      body.className = 'post-body';
+      body.textContent = post.body;
+      card.append(body);
+    }
+    if (post.mediaUrl) {
+      const media = post.mediaKind === 'video' ? document.createElement('video') : document.createElement('img');
+      media.src = absoluteAvatarUrl(post.mediaUrl);
+      if (post.mediaKind === 'video') {
+        media.controls = true;
+      } else {
+        media.alt = '';
+        media.loading = 'lazy';
+      }
+      media.className = 'post-media';
+      card.append(media);
+    }
+    feed.append(card);
+  });
+}
+
+async function attachPostMedia() {
+  const picked = await invokeTauri('pick_upload', { kind: 'post' });
+  if (!picked) return;
+  appState.postMedia = picked;
+  $('#postAttachmentName').textContent = picked.name || 'attached';
+}
+
+async function publishPost() {
+  if (!accountSession()) {
+    showToast('Sign in to your Esteria account to post.');
+    return;
+  }
+  const body = $('#postBodyInput').value.trim();
+  const media = appState.postMedia;
+  if (!body && !media) {
+    showToast('Write something or attach a file first.');
+    return;
+  }
+  try {
+    const payload = await accountRequest('/api/v2/social/posts', {
+      method: 'POST',
+      body: {
+        body,
+        ...(media ? { mimeType: media.mimeType, dataBase64: media.dataBase64 } : {})
+      }
+    });
+    $('#postBodyInput').value = '';
+    $('#postAttachmentName').textContent = '';
+    appState.postMedia = null;
+    if (payload?.post) appState.posts = [payload.post, ...(appState.posts || [])];
+    renderCommunity();
+    showToast('Posted to your friends.');
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+async function deletePost(postId) {
+  if (!window.confirm('Delete this post?')) return;
+  try {
+    await accountRequest(`/api/v2/social/posts/${postId}`, { method: 'DELETE' });
+    appState.posts = (appState.posts || []).filter((post) => post.id !== postId);
+    renderCommunity();
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+// ---- close and play prompts -------------------------------------------
+
+function rememberedCloseAction() {
+  const value = appState.settings.closeAction;
+  return ['close', 'tray', 'minimize'].includes(value) ? value : 'ask';
+}
+
+function rememberedPlayAction() {
+  const value = appState.settings.playAction;
+  return ['minimize', 'tray', 'keep'].includes(value) ? value : 'ask';
+}
+
+async function persistSetting(key, value) {
+  const next = { ...appState.settings, [key]: value };
+  try {
+    const saved = await invokeTauri('save_settings', { settings: next });
+    appState.settings = saved || next;
+  } catch (error) {
+    console.warn('Could not save that preference', error);
+    appState.settings = next;
+  }
+  if (closeActionSelect) closeActionSelect.value = appState.settings.closeAction || 'ask';
+  if (playActionSelect) playActionSelect.value = appState.settings.playAction || 'ask';
+}
+
+async function applyCloseAction(action) {
+  if (action === 'close') {
+    await invokeTauri('quit_launcher');
+    return;
+  }
+  if (action === 'tray') {
+    await invokeTauri('hide_main_window');
+    return;
+  }
+  await invokeTauri('minimize_main_window');
+}
+
+async function handleCloseRequest() {
+  const remembered = rememberedCloseAction();
+  if (remembered !== 'ask') {
+    await applyCloseAction(remembered);
+    return;
+  }
+  $('#closeRememberInput').checked = false;
+  $('#closeBackdrop').hidden = false;
+}
+
+async function chooseCloseAction(action) {
+  $('#closeBackdrop').hidden = true;
+  if ($('#closeRememberInput').checked) await persistSetting('closeAction', action);
+  await applyCloseAction(action);
+}
+
+async function startGame(action) {
+  try {
+    if (action === 'minimize' || action === 'tray') await invokeTauri('apply_play_action', { action });
+    const result = await invokeTauri('launch_game', { settings: appState.settings });
+    if (action === 'minimize' || action === 'tray') await invokeTauri('show_main_window');
+    showToast(result === null ? 'Desktop launch hook is ready.' : 'Esteria has closed.');
+  } catch (error) {
+    showToast(String(error), 5200);
+  }
+}
+
+async function choosePlayAction(action) {
+  $('#playBackdrop').hidden = true;
+  if ($('#playRememberInput').checked) await persistSetting('playAction', action);
+  await startGame(action);
+}
+
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event
+    .listen('launcher-close-requested', () => {
+      handleCloseRequest().catch((error) => console.warn('Could not handle the close request', error));
+    })
+    .catch((error) => console.warn('Could not listen for close requests', error));
+}
+
+$('#closeMinimizeButton').addEventListener('click', () => chooseCloseAction('minimize'));
+$('#closeTrayButton').addEventListener('click', () => chooseCloseAction('tray'));
+$('#closeExitButton').addEventListener('click', () => chooseCloseAction('close'));
+$('#closeCancelButton').addEventListener('click', () => {
+  $('#closeBackdrop').hidden = true;
+});
+$('#playMinimizeButton').addEventListener('click', () => choosePlayAction('minimize'));
+$('#playTrayButton').addEventListener('click', () => choosePlayAction('tray'));
+$('#playKeepButton').addEventListener('click', () => choosePlayAction('keep'));
+$('#playCancelButton').addEventListener('click', () => {
+  $('#playBackdrop').hidden = true;
+});
+
 $('#socialSearch').addEventListener('input', renderSocialPanel);
+$('#refreshCommunityButton').addEventListener('click', () => refreshCommunity());
+$('#attachPostButton').addEventListener('click', attachPostMedia);
+$('#publishPostButton').addEventListener('click', publishPost);
+$('#profileCardCloseButton').addEventListener('click', closeFriendCard);
+$('#profileCardBackdrop').addEventListener('click', (event) => { if (event.target === $('#profileCardBackdrop')) closeFriendCard(); });
+$('#profileCardMessageButton').addEventListener('click', () => {
+  if (appState.friendCard) openChatWindow(appState.friendCard.name);
+});
+$('#profileCardNicknameButton').addEventListener('click', () => {
+  if (appState.friendCard) setFriendNickname(appState.friendCard.name);
+});
+$('#profileCardFavoriteButton').addEventListener('click', () => {
+  if (appState.friendCard) setFriendFavorite(appState.friendCard.name, !appState.friendCard.favorite);
+});
+$('#profileCardRemoveButton').addEventListener('click', () => {
+  if (!appState.friendCard) return;
+  const name = appState.friendCard.name;
+  closeFriendCard();
+  removeFriend(name);
+});
+$('#headerImageButton').addEventListener('click', uploadHeader);
+$('#headerClearButton').addEventListener('click', clearHeader);
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#friendContextMenu') && !event.target.closest('.friend-row')) hideFriendMenu();
+});
+document.addEventListener('scroll', hideFriendMenu, true);
 
 const settingsBackdrop = $('#settingsBackdrop');
 const pathInput = $('#gamePathInput');
@@ -829,7 +1352,9 @@ const armorySourceInput = $('#armorySourceInput');
 const databaseSourceInput = $('#databaseSourceInput');
 const patchListInput = $('#patchListInput');
 const cleanWdbInput = $('#cleanWdbInput');
-const minimizeOnPlayInput = $('#minimizeOnPlayInput');
+const closeActionSelect = $('#closeActionSelect');
+const playActionSelect = $('#playActionSelect');
+
 const autoUpdateAddonsInput = $('#autoUpdateAddonsInput');
 const realmHostInput = $('#realmHostInput');
 const realmPortInput = $('#realmPortInput');
@@ -866,6 +1391,7 @@ function openProfileDialog() {
   $('#profileNameInput').value = profile.displayName || 'Player';
   $('#profilePresenceSelect').value = normalizePresence(profile.presence || 'online');
   $('#profileStatusInput').value = profile.statusMessage || '';
+  $('#profileBioInput').value = profile.bio || '';
   $('#favoriteCharacterInput').value = profile.favoriteCharacter || '';
   $('#profileBackdrop').hidden = false;
   requestAnimationFrame(() => $('#profileNameInput').focus());
@@ -882,6 +1408,7 @@ async function saveProfile() {
         displayName: $('#profileNameInput').value.trim(),
         presence: $('#profilePresenceSelect').value,
         statusMessage: $('#profileStatusInput').value.trim(),
+        bio: $('#profileBioInput').value.trim(),
         favoriteCharacter: $('#favoriteCharacterInput').value.trim()
       }
     });
@@ -1096,6 +1623,7 @@ async function sendChatMessage(event) {
         body: { to: appState.activeChatFriend, body }
       });
       appState.accountThreads[key] = [...(appState.accountThreads[key] || []), payload.message];
+      playChatSound('outgoing');
       await refreshAccountFeed({ publish: false });
     } else {
       appState.social = await invokeTauri('send_chat_message', {
@@ -1127,7 +1655,7 @@ $('#cancelFriendButton').addEventListener('click', closeFriendDialog);
 $('#saveFriendButton').addEventListener('click', addFriendFromDialog);
 $('#friendBackdrop').addEventListener('click', (event) => { if (event.target === $('#friendBackdrop')) closeFriendDialog(); });
 $('#friendNameInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') addFriendFromDialog(); });
-$('#chatsButton').addEventListener('click', () => openChatDialog());
+$('#chatsButton').addEventListener('click', () => openChatWindow());
 $('#removeChatFriendButton').addEventListener('click', () => {
   if (appState.activeChatFriend) removeFriend(appState.activeChatFriend);
 });
@@ -1166,7 +1694,9 @@ function populateSettingsForm() {
   databaseSourceInput.value = appState.settings.databaseSource || '';
   patchListInput.value = appState.settings.patchList || '';
   cleanWdbInput.checked = appState.settings.cleanWdb !== false;
-  minimizeOnPlayInput.checked = appState.settings.minimizeOnPlay !== false;
+  closeActionSelect.value = appState.settings.closeAction || DEFAULT_SETTINGS.closeAction;
+  playActionSelect.value = appState.settings.playAction || DEFAULT_SETTINGS.playAction;
+
   autoUpdateAddonsInput.checked = appState.settings.autoUpdateAddons !== false;
   realmHostInput.value = appState.settings.realmHost || DEFAULT_SETTINGS.realmHost;
   realmPortInput.value = appState.settings.realmPort || DEFAULT_SETTINGS.realmPort;
@@ -1331,7 +1861,9 @@ $('#saveSettingsButton').addEventListener('click', async () => {
     realmPort: port,
     patchList: patchListInput.value.trim(),
     cleanWdb: cleanWdbInput.checked,
-    minimizeOnPlay: minimizeOnPlayInput.checked
+    minimizeOnPlay: false,
+    closeAction: closeActionSelect.value,
+    playAction: playActionSelect.value
   };
 
   try {
@@ -1583,16 +2115,13 @@ playButton.addEventListener('click', async () => {
     return;
   }
 
-  try {
-    const result = await invokeTauri('launch_game', { settings: appState.settings });
-    if (result === null) {
-      showToast('Desktop launch hook is ready.');
-    } else {
-      showToast('Launching Esteria…');
-    }
-  } catch (error) {
-    showToast(String(error), 5200);
+  const remembered = rememberedPlayAction();
+  if (remembered === 'ask') {
+    $('#playRememberInput').checked = false;
+    $('#playBackdrop').hidden = false;
+    return;
   }
+  await startGame(remembered);
 });
 
 function renderAddons() {
@@ -2085,8 +2614,14 @@ $('#maximizeButton').addEventListener('click', () => windowCommand('maximize'));
 $('#closeButton').addEventListener('click', () => windowCommand('close'));
 
 window.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape') return;
-  if (!$('#chatBackdrop').hidden) closeChatDialog();
+  if (event.key !== 'Escape') {
+    return;
+  }
+  if (!$('#friendContextMenu').hidden) hideFriendMenu();
+  else if (!$('#closeBackdrop').hidden) $('#closeBackdrop').hidden = true;
+  else if (!$('#playBackdrop').hidden) $('#playBackdrop').hidden = true;
+  else if (!$('#profileCardBackdrop').hidden) closeFriendCard();
+  else if (!$('#chatBackdrop').hidden) closeChatDialog();
   else if (!$('#friendBackdrop').hidden) closeFriendDialog();
   else if (!$('#socialSettingsBackdrop').hidden) closeSocialSettingsDialog();
   else if (!$('#profileBackdrop').hidden) closeProfileDialog();
@@ -2135,16 +2670,51 @@ async function initializeDesktopState() {
     renderAccountPanel();
     if (accountSession()) {
       await refreshAccountFeed();
+      appState.unreadByFriend = Object.fromEntries(
+        (appState.accountFeed?.friends || []).map((friend) => [friend.username.toLowerCase(), Number(friend.unread) || 0])
+      );
+      appState.unreadTotal = Number(appState.accountFeed?.unread) || 0;
       renderSocialPanel();
+    }
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('chat-thread', (event) => {
+        appState.chatThread = event.payload?.friend || '';
+      }).catch((error) => console.warn('Could not listen for chat focus changes', error));
     }
     setInterval(async () => {
       if (!accountSession()) return;
+      const previousByFriend = appState.unreadByFriend || {};
       await refreshAccountFeed();
+      const friends = appState.accountFeed?.friends || [];
+      const nextByFriend = {};
+      friends.forEach((friend) => {
+        nextByFriend[friend.username.toLowerCase()] = Number(friend.unread) || 0;
+      });
+      appState.unreadByFriend = nextByFriend;
+      appState.unreadTotal = Number(appState.accountFeed?.unread) || 0;
+      const chatVisible = appState.chatWindowShown ? await chatWindowVisible() : false;
+      appState.chatWindowOpen = chatVisible;
+      const fresh = friends.filter(
+        (friend) => (Number(friend.unread) || 0) > (previousByFriend[friend.username.toLowerCase()] || 0)
+      );
+      if (fresh.length) {
+        playChatSound('incoming');
+        const sender = fresh[0];
+        const senderName = sender.displayName || sender.username;
+        if (!chatVisible) {
+          await openChatWindow(sender.username);
+          showToast(`${senderName} sent you a message.`);
+        } else if (appState.chatThread.toLowerCase() !== sender.username.toLowerCase()) {
+          await requestChatAttention();
+          showToast(`${senderName} sent you a message.`);
+        }
+      }
       renderSocialPanel();
       if (!$('#chatBackdrop').hidden && appState.activeChatFriend) {
         await loadAccountThread(appState.activeChatFriend);
         renderChatDialog();
       }
+      if (appState.activeView === 'community') await refreshCommunity();
     }, 20000);
     await Promise.all([
       refreshRealmStatus(),

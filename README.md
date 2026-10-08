@@ -47,6 +47,11 @@ Battle.net-inspired desktop launcher for Esteria, built with Tauri 2, Rust, HTML
 
 - Esteria accounts: unique account name and password, with a signed-in identity that follows the player between devices
 - Server-backed presence, player discovery, friend requests, one-to-one chat, and per-player profile pictures
+- Chat lives in its own draggable, resizable window, with distinct incoming and outgoing message sounds
+- Friend profile cards show bio, header image, avatar, presence, and status, with Send message, Nickname, Favorite, and Remove friend actions; right-clicking a friend opens the same actions as a menu
+- Group chats with up to 20 friends, created from the chat window
+- Community tab: post updates, screenshots, or clips that only your friends can see
+- Animated GIF avatars and animated profile headers
 - Local-only profile, friends, and chat stay available when no account is signed in
 - Local player profile with Online, Away, Do Not Disturb, and Appear Offline presence modes
 - Persistent local friends list, social preferences, one-to-one chat history, search, and unread state
@@ -101,7 +106,21 @@ GET    /api/v2/account/me
 POST   /api/v2/account/profile         { displayName?, statusMessage?, presence? }
 PUT    /api/v2/account/avatar          { mimeType, dataBase64 }
 DELETE /api/v2/account/avatar
-GET    /avatars/<account-id>.<png|jpg|webp>?v=<version>
+GET    /avatars/<account-id>.<png|jpg|webp|gif>?v=<version>
+PUT    /api/v2/account/header         { mimeType, dataBase64 }
+DELETE /api/v2/account/header
+GET    /headers/<account-id>.<ext>?v=<version>
+GET    /api/v2/social/profiles/<username>
+POST   /api/v2/social/friends/<username>   { nickname?, favorite? }
+GET    /api/v2/social/groups
+POST   /api/v2/social/groups               { name, members: [username] }
+GET    /api/v2/social/groups/<id>/messages?since=<messageId>
+POST   /api/v2/social/groups/<id>/messages { body }
+DELETE /api/v2/social/groups/<id>
+GET    /api/v2/social/posts?since=<postId>
+POST   /api/v2/social/posts                { body, mimeType?, dataBase64? }
+DELETE /api/v2/social/posts/<id>
+GET    /media/<post-id>.<png|jpg|webp|gif|mp4|webm>
 GET    /api/v2/social/feed
 POST   /api/v2/social/heartbeat        { presence?, statusMessage?, displayName? }
 GET    /api/v2/social/discover?q=<name>
@@ -117,7 +136,7 @@ Passwords are stored as scrypt hashes. Login and registration return a bearer to
 Start the CDN service with the account store pointed at a writable directory:
 
 ```powershell
-$env:SOCIAL_DATA_DIR = 'C:\Esteria\CDN\social'
+$env:SOCIAL_DATA_DIR = 'G:\EsteriaCDN\social'
 $env:SOCIAL_PUBLIC_BASE_URL = 'https://cdn.example.com'
 ```
 
@@ -135,7 +154,7 @@ Put the same host behind HTTPS before inviting players. Account names and passwo
 A practical server layout is:
 
 ```text
-C:\Esteria\CDN\
+G:\EsteriaCDN\
   client\
     live\
       Wow.exe
@@ -164,20 +183,20 @@ Start the existing CDN service with:
 R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server\start-cdn.cmd
 ```
 
-`start-cdn.cmd` defaults `ESTERIA_CDN_ROOT` to `Y:\EsteriaCDN` and sets the channel, add-on, update, and account paths from it, so the CDN tree can move without editing the script. The manual equivalent sets the same variables:
+`server\start-cdn.cmd` defaults `ESTERIA_CDN_ROOT` to `G:\EsteriaCDN`, the CDN path on the machine that runs the service, and derives the channel, add-on, update, and account paths from it. Set `ESTERIA_CDN_ROOT` when the CDN lives elsewhere, such as the `Y:` network mount on a workstation. Append `/check` to print the resolved paths without starting anything. The manual equivalent sets the same variables:
 
 ```powershell
 Set-Location R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server
-$env:CLIENT_ROOT_DIR = 'C:\Esteria\CDN\client'
+$env:CLIENT_ROOT_DIR = 'G:\EsteriaCDN\client'
 $env:CLIENT_CHANNELS = 'live,ptr'
-$env:ADDONS_DIR = 'C:\Esteria\CDN\addons'
-$env:LAUNCHER_UPDATES_DIR = 'C:\Esteria\CDN\launcher-updates'
-$env:NEWS_FILE = 'C:\Esteria\CDN\news.json'
-$env:STATUS_FILE = 'C:\Esteria\CDN\status.json'
-$env:SOCIAL_FILE = 'C:\Esteria\CDN\social.json'
-$env:ARMORY_FILE = 'C:\Esteria\CDN\armory.json'
-$env:DATABASE_FILE = 'C:\Esteria\CDN\database-index.json'
-$env:SOCIAL_DATA_DIR = 'C:\Esteria\CDN\social'
+$env:ADDONS_DIR = 'G:\EsteriaCDN\addons'
+$env:LAUNCHER_UPDATES_DIR = 'G:\EsteriaCDN\launcher-updates'
+$env:NEWS_FILE = 'G:\EsteriaCDN\news.json'
+$env:STATUS_FILE = 'G:\EsteriaCDN\status.json'
+$env:SOCIAL_FILE = 'G:\EsteriaCDN\social.json'
+$env:ARMORY_FILE = 'G:\EsteriaCDN\armory.json'
+$env:DATABASE_FILE = 'G:\EsteriaCDN\database-index.json'
+$env:SOCIAL_DATA_DIR = 'G:\EsteriaCDN\social'
 npm run dev
 ```
 
@@ -190,7 +209,7 @@ Data\Patch-Housing.MPQ       + Data\Patch-Housing.MPQ.zip
 Data\patch-K.mpq             + Data\patch-K.mpq.zip
 ```
 
-You can override or extend that list with `C:\Esteria\CDN\client\live\.delivery-bundles.json`:
+You can override or extend that list with `G:\EsteriaCDN\client\live\.delivery-bundles.json`:
 
 ```json
 [
@@ -361,7 +380,7 @@ The private updater key is intentionally stored outside this repository. Back it
 Publish the newest NSIS build to the CDN and generate `latest.json` with:
 
 ```powershell
-.\tools\Publish-EsteriaLauncher.ps1 -UpdatesRoot 'C:\Esteria\CDN\launcher-updates'
+.\tools\Publish-EsteriaLauncher.ps1 -UpdatesRoot 'G:\EsteriaCDN\launcher-updates'
 ```
 
 ## Still planned

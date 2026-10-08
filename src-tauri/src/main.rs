@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use futures_util::StreamExt;
 use reqwest::header::RANGE;
 use serde::{Deserialize, Serialize};
@@ -8,10 +10,12 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex,
 };
 use std::time::{Duration, Instant, UNIX_EPOCH};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -74,6 +78,12 @@ struct LauncherSettings {
     clean_wdb: bool,
     #[serde(default = "default_true")]
     minimize_on_play: bool,
+    /// "ask", "close", "tray", or "minimize" — what the close button should do.
+    #[serde(default = "default_close_action")]
+    close_action: String,
+    /// "ask", "minimize", "tray", or "keep" — what to do with the launcher when the game starts.
+    #[serde(default = "default_play_action")]
+    play_action: String,
 }
 
 impl Default for LauncherSettings {
@@ -96,7 +106,26 @@ impl Default for LauncherSettings {
             patch_list: default_patch_list(),
             clean_wdb: true,
             minimize_on_play: true,
+            close_action: default_close_action(),
+            play_action: default_play_action(),
         }
+    }
+}
+
+fn default_close_action() -> String {
+    "ask".to_string()
+}
+
+fn default_play_action() -> String {
+    "ask".to_string()
+}
+
+fn normalize_window_action(value: &str, allowed: &[&str], fallback: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if allowed.iter().any(|candidate| *candidate == trimmed) {
+        trimmed
+    } else {
+        fallback.to_string()
     }
 }
 
@@ -297,6 +326,8 @@ struct PlayerProfile {
     #[serde(default)]
     status_message: String,
     #[serde(default)]
+    bio: String,
+    #[serde(default)]
     favorite_character: String,
 }
 
@@ -306,6 +337,7 @@ impl Default for PlayerProfile {
             display_name: default_player_name(),
             presence: default_presence(),
             status_message: String::new(),
+            bio: String::new(),
             favorite_character: String::new(),
         }
     }
@@ -2328,6 +2360,7 @@ fn save_player_profile(mut profile: PlayerProfile) -> Result<SocialState, String
         profile.display_name = default_player_name();
     }
     profile.status_message = profile.status_message.trim().chars().take(120).collect();
+    profile.bio = profile.bio.trim().chars().take(400).collect();
     profile.favorite_character = profile.favorite_character.trim().chars().take(32).collect();
     if !matches!(profile.presence.as_str(), "online" | "away" | "dnd" | "offline") {
         profile.presence = default_presence();
@@ -2399,11 +2432,9 @@ fn send_chat_message(friend_name: String, body: String) -> Result<SocialState, S
 }
 
 
-const AVATAR_MAX_BYTES: u64 = 2 * 1024 * 1024;
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AvatarUpload {
+struct PickedFile {
     name: String,
     mime_type: String,
     data_base64: String,
@@ -2445,37 +2476,74 @@ fn clear_account_session() -> Result<SocialState, String> {
     Ok(state)
 }
 
-/// Opens a picker, validates the file is really an image, and hands the bytes to
+struct UploadKind {
+    title: &'static str,
+    filters: &'static [&'static str],
+    error: &'static str,
+    limit: u64,
+}
+
+/// Opens a picker, checks the file is a real image or video, and hands the bytes to
 /// the webview so the launcher keeps a single HTTP path for account requests.
 #[tauri::command]
-fn pick_avatar() -> Result<Option<AvatarUpload>, String> {
+fn pick_upload(kind: String) -> Result<Option<PickedFile>, String> {
+    let spec = match kind.as_str() {
+        "avatar" => UploadKind {
+            title: "Choose an Esteria profile picture",
+            filters: &["png", "jpg", "jpeg", "webp", "gif"],
+            error: "Profile pictures must be PNG, JPEG, WebP, or GIF images.",
+            limit: 8 * 1024 * 1024,
+        },
+        "header" => UploadKind {
+            title: "Choose an Esteria profile header",
+            filters: &["png", "jpg", "jpeg", "webp", "gif"],
+            error: "Profile headers must be PNG, JPEG, WebP, or GIF images.",
+            limit: 16 * 1024 * 1024,
+        },
+        _ => UploadKind {
+            title: "Choose a picture or video to share",
+            filters: &["png", "jpg", "jpeg", "webp", "gif", "mp4", "webm"],
+            error: "Posts accept PNG, JPEG, WebP, GIF, MP4, or WebM files.",
+            limit: 32 * 1024 * 1024,
+        },
+    };
     let selected = rfd::FileDialog::new()
-        .set_title("Choose an Esteria profile picture")
-        .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+        .set_title(spec.title)
+        .add_filter("Supported files", spec.filters)
         .pick_file();
     let Some(path) = selected else {
         return Ok(None);
     };
-    let metadata = fs::metadata(&path).map_err(|error| format!("Could not read that picture: {error}"))?;
-    if metadata.len() > AVATAR_MAX_BYTES {
-        return Err("Profile pictures must be 2 MB or smaller.".to_string());
+    let metadata = fs::metadata(&path).map_err(|error| format!("Could not read that file: {error}"))?;
+    if metadata.len() > spec.limit {
+        return Err(format!(
+            "That file is {} MB. The limit is {} MB.",
+            (metadata.len() + 1024 * 1024 - 1) / (1024 * 1024),
+            spec.limit / (1024 * 1024)
+        ));
     }
-    let bytes = fs::read(&path).map_err(|error| format!("Could not read that picture: {error}"))?;
+    let bytes = fs::read(&path).map_err(|error| format!("Could not read that file: {error}"))?;
     let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
         "image/png"
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
         "image/jpeg"
     } else if bytes.len() > 12 && bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
         "image/webp"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if bytes.len() > 12 && bytes.get(4..8) == Some(b"ftyp".as_slice()) {
+        "video/mp4"
+    } else if bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        "video/webm"
     } else {
-        return Err("Profile pictures must be PNG, JPEG, or WebP images.".to_string());
+        return Err(spec.error.to_string());
     };
     let name = path
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
-        .unwrap_or_else(|| "avatar".to_string());
+        .unwrap_or_else(|| "upload".to_string());
     let engine = base64::engine::general_purpose::STANDARD;
-    Ok(Some(AvatarUpload {
+    Ok(Some(PickedFile {
         name,
         mime_type: mime_type.to_string(),
         data_base64: base64::Engine::encode(&engine, &bytes),
@@ -2635,9 +2703,138 @@ fn runtime_info() -> RuntimeInfo {
     }
 }
 
+/// Set once the user really wants out, so the close handler stops intercepting.
+static EXITING: AtomicBool = AtomicBool::new(false);
+/// A conversation the chat window should open the next time it is shown or focused.
+static PENDING_CHAT: Mutex<Option<String>> = Mutex::new(None);
+
+fn reveal_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Open Esteria Launcher", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Esteria Launcher", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("esteria-tray")
+        .tooltip("Esteria Launcher")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => reveal_main_window(app),
+            "quit" => {
+                EXITING.store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                reveal_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+        return;
+    };
+    if EXITING.load(Ordering::SeqCst) {
+        return;
+    }
+    match window.label() {
+        // The chat popout is hidden rather than destroyed so it can be reopened instantly.
+        "chat" => {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        // The launcher asks the interface what to do instead of disappearing.
+        "main" => {
+            api.prevent_close();
+            let _ = window.emit("launcher-close-requested", ());
+        }
+        _ => {}
+    }
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    reveal_main_window(&app);
+}
+
+#[tauri::command]
+fn quit_launcher(app: tauri::AppHandle) {
+    EXITING.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+#[tauri::command]
+fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The main window is not available.".to_string())?;
+    window.hide().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn minimize_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The main window is not available.".to_string())?;
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn apply_play_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The main window is not available.".to_string())?;
+    match normalize_window_action(&action, &["minimize", "tray", "keep"], "keep").as_str() {
+        "minimize" => window.minimize().map_err(|error| error.to_string())?,
+        "tray" => window.hide().map_err(|error| error.to_string())?,
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Remembers which conversation the chat window should surface next.
+#[tauri::command]
+fn set_pending_chat(friend: String) {
+    if let Ok(mut guard) = PENDING_CHAT.lock() {
+        let trimmed = friend.trim().to_string();
+        *guard = if trimmed.is_empty() { None } else { Some(trimmed) };
+    }
+}
+
+#[tauri::command]
+fn take_pending_chat() -> Option<String> {
+    PENDING_CHAT.lock().ok().and_then(|mut guard| guard.take())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|app| {
+            if let Err(error) = build_tray(app.handle()) {
+                eprintln!("Could not create the tray icon: {error}");
+            }
+            Ok(())
+        })
+        .on_window_event(handle_window_event)
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
@@ -2665,7 +2862,14 @@ fn main() {
             send_chat_message,
             save_account_session,
             clear_account_session,
-            pick_avatar,
+            pick_upload,
+            show_main_window,
+            quit_launcher,
+            hide_main_window,
+            minimize_main_window,
+            apply_play_action,
+            set_pending_chat,
+            take_pending_chat,
             open_install_directory,
             open_client_subfolder,
             clear_wdb,
