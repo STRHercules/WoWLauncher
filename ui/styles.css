@@ -52,7 +52,7 @@ button { color: inherit; }
 .titlebar-left { display: flex; align-items: center; min-width: 0; }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 22px; min-width: 166px; }
 .brand-mark { width: 31px; height: 31px; }
-.brand-name { font-size: 16px; font-weight: 700; letter-spacing: .08em; color: #e8edf2; }
+.brand-name { font-size: 16px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #e8edf2; }
 .primary-nav { display: flex; align-items: stretch; }
 .primary-nav button,
 .icon-button,

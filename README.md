@@ -348,6 +348,73 @@ npx --yes @tauri-apps/cli@2.12.1 build
 
 The values are compiled into the Rust binary as defaults. Users can still override them in settings for testing.
 
+## Rebranding for your server
+
+This repository is meant to be forked and rebuilt as a bespoke launcher. The application name
+and its identity live in one file, `branding.json`:
+
+```json
+{
+  "name": "Esteria",
+  "identifier": "gg.esteria.launcher"
+}
+```
+
+Change them with the helper script, which rewrites every place the name is compiled in or shown
+and then updates `branding.json` so the next run starts from the right values. Pass the brand
+word itself, not the full window title; the launcher appends "Launcher" and "Chat" where it
+needs a longer name:
+
+```powershell
+# Brand word only. The application ID defaults to gg.<brand>.launcher
+.\tools\Set-Branding.ps1 -Name 'Azeroth'
+
+# Brand plus a full icon set generated from one square PNG (1024x1024 recommended)
+.\tools\Set-Branding.ps1 -Name 'Azeroth' -Icon .\art\azeroth-icon.png
+```
+
+Then build the release as usual:
+
+```powershell
+npx --yes @tauri-apps/cli@2.12.1 build
+```
+
+The script is idempotent, so run it again whenever you want to rename the launcher a second time.
+
+Pick a brand word that is not already used in the launcher copy. If it is (for example `Azeroth`,
+which already appears in the Wrath-era artwork description), the script warns first, because the
+rename replaces those mentions too.
+
+### What the script changes
+
+| Field | Where it lands |
+| --- | --- |
+| `name` | Window titles (`<name> Launcher` and `<name> Chat`), tray tooltip and menu, `tauri.conf.json` `productName` (installer file name, install folder, Add/Remove Programs entry, shortcuts), `Cargo.toml` description and author, the launcher UI text, toasts, dialogs, and the `%APPDATA%` settings folder (`<name>Launcher`, currently `EsteriaLauncher`) |
+| `identifier` | The Tauri application ID in `tauri.conf.json`. Windows and the signed updater use it to recognize an installed copy, so give your build its own ID. Keep the current one only if you are intentionally shipping updates for the same install |
+| `-Icon` | Regenerates every file in `src-tauri\icons\` from one square PNG and refreshes the embedded fallback in `src-tauri\icon.b64` |
+
+Two things intentionally stay the same:
+
+- The executable is still `esteria-launcher.exe` (the Cargo package name), so `Run-Launcher.cmd`
+  keeps working. To rename it, change `name` in `src-tauri\Cargo.toml` and the paths in
+  `Run-Launcher.cmd`.
+- The build-time endpoint overrides keep the `ESTERIA_DEFAULT_*` names documented above, so
+  existing build scripts keep working.
+
+### Icons and artwork
+
+- `-Icon` covers the application icon, installer icon, taskbar icon, and tray icon, because
+  Tauri generates all of them from the single source image.
+- `src-tauri\icons\` is generated output. If you replace it by hand instead of using `-Icon`,
+  keep `icons\icon.ico` or delete `src-tauri\icon.b64`; `build.rs` regenerates `icon.ico` from
+  `icon.b64` whenever that file is missing, which would otherwise restore the old icon.
+- In-app artwork lives in `ui\assets\`. Overwrite the files and keep the same names:
+  `esteria-icon.png` (title bar and game tab), `esteria-wordmark.png` (sidebar logo),
+  `tab-armory.png` / `tab-database.png` / `tab-tools.png`, the `hero-*.svg` and `news-*.svg`
+  cards, and `sidebar-world.svg`.
+- The title-bar name is styled with `text-transform: uppercase`, so the app name appears in
+  capitals even though `branding.json` stores it in normal case.
+
 ## Development
 
 ```powershell
