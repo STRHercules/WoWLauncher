@@ -1,0 +1,17 @@
+# Rust / Tauri
+src-tauri/target/
+
+# Node
+node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local launcher settings / test output
+*.esteria-download
+
+# Updater signing secrets. Back this directory up securely and never commit it.
+.signing/

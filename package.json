@@ -1,0 +1,14 @@
+{
+  "name": "esteria-launcher",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Desktop launcher for Esteria",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}

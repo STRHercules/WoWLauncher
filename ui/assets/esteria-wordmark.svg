@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 150" role="img" aria-label="Esteria">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#efd08d"/>
+      <stop offset=".52" stop-color="#b98a45"/>
+      <stop offset="1" stop-color="#715025"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 82c28-7 47-20 61-38M502 82c-28-7-47-20-61-38" fill="none" stroke="#8a642f" stroke-width="3" opacity=".8"/>
+  <text x="260" y="96" text-anchor="middle" font-family="Georgia, serif" font-size="78" font-weight="700" letter-spacing="7" fill="url(#gold)" stroke="#3b2a16" stroke-width="2">ESTERIA</text>
+  <path d="M98 111h324" stroke="#8f672f" stroke-width="2"/>
+</svg>

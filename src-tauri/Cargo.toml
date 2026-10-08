@@ -1,0 +1,33 @@
+[package]
+name = "esteria-launcher"
+version = "0.3.1"
+description = "Desktop launcher for Esteria"
+authors = ["Esteria"]
+edition = "2021"
+
+[build-dependencies]
+base64 = "0.22"
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+tokio = { version = "1", features = ["fs", "io-util", "net", "time", "macros", "rt-multi-thread"] }
+futures-util = "0.3"
+rfd = "0.15"
+url = "2"
+fs2 = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-updater = "2.12.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#171a20" />
+  <title>Esteria Launcher</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="titlebar-left" data-tauri-drag-region>
+        <div class="brand" aria-label="Esteria">
+          <img src="./assets/esteria-mark.svg" alt="" class="brand-mark" />
+          <span class="brand-name">ESTERIA</span>
+        </div>
+
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="primary-nav-item is-active" data-nav="games" type="button">Games</button>
+          <button class="primary-nav-item" data-nav="news" type="button">News</button>
+          <button class="primary-nav-item" data-nav="community" type="button">Community</button>
+          <button class="primary-nav-more" type="button" aria-label="More">•••</button>
+        </nav>
+      </div>
+
+      <div class="titlebar-actions">
+        <button class="icon-button" id="checkUpdatesButton" type="button" title="Check for updates" aria-label="Check for updates">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.7 8.2A6.5 6.5 0 0 1 18 10h2.2l-3.1 3.2L14 10h2a4.5 4.5 0 0 0-7.8-1.2L6.7 8.2Zm10.6 7.6A6.5 6.5 0 0 1 6 14H3.8l3.1-3.2L10 14H8a4.5 4.5 0 0 0 7.8 1.2l1.5.6Z"/></svg>
+        </button>
+        <button class="icon-button" id="downloadsButton" type="button" title="Downloads" aria-label="Downloads">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v9.2l3-3 1.4 1.4L12 17l-5.4-5.4L8 10.2l3 3V4Zm-5 15h12v2H6v-2Z"/></svg>
+        </button>
+        <button class="icon-button" type="button" title="Notifications" aria-label="Notifications" data-toast="No new notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a5 5 0 0 1 5 5v3.6l1.7 3.4H20v2H4v-2h1.3L7 11.6V8a5 5 0 0 1 5-5Zm-2 16h4a2 2 0 0 1-4 0Z"/></svg>
+        </button>
+        <div class="window-controls">
+          <button class="window-button" id="minimizeButton" type="button" aria-label="Minimize">−</button>
+          <button class="window-button" id="maximizeButton" type="button" aria-label="Maximize">□</button>
+          <button class="window-button close" id="closeButton" type="button" aria-label="Close">×</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="primary-shell">
+      <nav class="game-strip" aria-label="Esteria applications">
+        <button class="all-games-button" type="button" data-toast="Game library view is planned">
+          <span class="grid-icon" aria-hidden="true">⠿</span>
+          <span>All Games</span>
+        </button>
+        <button class="game-tab is-active" id="esteriaTabButton" type="button" aria-label="Esteria" data-view="home">
+          <img src="./assets/esteria-mark.svg" alt="" />
+        </button>
+        <button class="game-tab" id="armoryTabButton" type="button" aria-label="Armory" title="Armory" data-view="armory">A</button>
+        <button class="game-tab" id="databaseTabButton" type="button" aria-label="World Database" title="World Database" data-view="database">W</button>
+        <button class="game-tab" id="toolsTabButton" type="button" aria-label="Launcher Tools" title="Launcher Tools" data-view="tools">T</button>
+      </nav>
+
+      <div class="workspace">
+        <aside class="game-sidebar">
+          <div class="game-identity">
+            <img class="game-logo" src="./assets/esteria-wordmark.svg" alt="Esteria" />
+            <button class="realm-badge" id="realmStatus" type="button" title="Check realm status"><span class="status-dot"></span> <span id="realmStatusText">Checking realm…</span></button>
+            <div class="realm-detail" id="realmDetail">Loading server status…</div>
+          </div>
+
+          <nav class="game-links" aria-label="Game links">
+            <button type="button" id="addonsNavButton">
+              <span class="link-icon">◇</span><span>Add-ons</span>
+            </button>
+            <button type="button" data-toast="Community link will be configurable">
+              <span class="link-icon">▣</span><span>Community</span>
+            </button>
+            <button type="button" data-toast="Patch notes page is next on the launcher roadmap">
+              <span class="link-icon">✦</span><span>Patch Notes</span>
+            </button>
+          </nav>
+
+          <div class="sidebar-spacer"></div>
+
+          <div class="update-status" id="updateStatus" aria-live="polite">
+            <div class="update-status-row">
+              <span id="updateLabel">Ready to play</span>
+              <span id="updatePercent"></span>
+            </div>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+          </div>
+
+          <label class="field-label" for="versionSelect">Game version</label>
+          <select class="version-select" id="versionSelect">
+            <option value="live">Esteria Live · 3.3.5a</option>
+            <option value="ptr">Esteria PTR · 3.3.5a</option>
+          </select>
+
+          <div class="launcher-update-banner" id="launcherUpdateBanner" hidden>
+            <span id="launcherUpdateText">Launcher update available</span>
+            <button id="installLauncherUpdateButton" type="button">Install</button>
+          </div>
+
+          <div class="play-row">
+            <button class="play-button" id="playButton" type="button">Play</button>
+            <button class="settings-button" id="openSettingsButton" type="button" aria-label="Game settings" title="Game settings">⚙</button>
+          </div>
+          <div class="build-number" id="buildNumber">Launcher 0.3.0</div>
+        </aside>
+
+        <main class="content" id="mainContent">
+          <section class="hero" id="hero">
+            <div class="hero-art hero-art-one" id="heroArt"></div>
+            <div class="hero-overlay"></div>
+            <div class="hero-copy">
+              <div class="hero-kicker" id="heroKicker">World Update</div>
+              <h1 id="heroTitle">The gates of Esteria are open</h1>
+              <p id="heroBody">Explore a custom Wrath-era world with new races, systems, and adventures built for Esteria.</p>
+              <button class="secondary-button" id="heroAction" type="button">Learn more</button>
+            </div>
+            <div class="hero-controls" aria-label="Featured stories">
+              <button id="heroPrev" type="button" aria-label="Previous story">‹</button>
+              <div class="hero-dots" id="heroDots"></div>
+              <button id="heroNext" type="button" aria-label="Next story">›</button>
+            </div>
+          </section>
+
+          <section class="news-section" id="newsSection">
+            <div class="section-heading">
+              <h2>Latest from Esteria</h2>
+              <button type="button" data-toast="Full news archive is planned">View all</button>
+            </div>
+            <div class="news-grid" id="newsGrid">
+              <article class="news-card" tabindex="0">
+                <img src="./assets/news-races.svg" alt="Stylized silhouettes representing custom playable races" />
+                <div class="news-card-body">
+                  <div class="news-meta">Development</div>
+                  <h3>Custom races continue to expand</h3>
+                  <p>New character options, racials, and creation work are moving into the next launcher preview.</p>
+                </div>
+              </article>
+              <article class="news-card" tabindex="0">
+                <img src="./assets/news-world.svg" alt="Stylized fantasy landscape" />
+                <div class="news-card-body">
+                  <div class="news-meta">World</div>
+                  <h3>Echoes of the Worldsoul</h3>
+                  <p>Follow the latest work on Esteria's custom world content, encounters, and progression.</p>
+                </div>
+              </article>
+              <article class="news-card" tabindex="0">
+                <img src="./assets/news-launcher.svg" alt="Stylized launcher update interface" />
+                <div class="news-card-body">
+                  <div class="news-meta">Launcher</div>
+                  <h3>A new home for updates</h3>
+                  <p>This desktop launcher will handle client launch, patch status, news, and account-facing tools.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="feed-section">
+            <div class="section-heading">
+              <h2>Development feed</h2>
+            </div>
+            <div class="feed-list">
+              <button type="button" class="feed-item" data-toast="Patch-note detail view is planned">
+                <span class="feed-date">Oct 7</span>
+                <span class="feed-title">Launcher shell and desktop integration started</span>
+                <span class="feed-arrow">›</span>
+              </button>
+              <button type="button" class="feed-item" data-toast="Race detail view is planned">
+                <span class="feed-date">Oct 6</span>
+                <span class="feed-title">Character race and portrait work continues</span>
+                <span class="feed-arrow">›</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="addons-section" id="addonsSection" hidden>
+            <div class="addons-toolbar">
+              <div>
+                <h2>Add-ons</h2>
+                <p>Install and update launcher-managed add-ons for this Esteria client.</p>
+              </div>
+              <div class="addons-toolbar-actions">
+                <button type="button" id="installRequiredAddonsButton">Install required</button>
+                <button type="button" id="refreshAddonsButton">Refresh</button>
+                <button type="button" id="closeAddonsButton">Back</button>
+              </div>
+            </div>
+            <div class="addons-empty" id="addonsEmpty">Configure an add-on catalog in Game settings to use the add-on manager.</div>
+            <div class="addons-list" id="addonsList"></div>
+          </section>
+
+          <section class="launcher-page" id="armorySection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Armory</h2>
+                <p>Search published Esteria character profiles without exposing realm database credentials.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshArmoryButton">Refresh</button>
+            </div>
+            <div class="page-search-row">
+              <input id="armorySearchInput" type="search" placeholder="Search character, guild, race, or class" autocomplete="off" />
+            </div>
+            <div class="armory-layout">
+              <div class="result-list" id="armoryResults"></div>
+              <div class="detail-panel" id="armoryDetail">
+                <div class="empty-detail">Search for a character to view their profile and equipment.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="launcher-page" id="databaseSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>World Database</h2>
+                <p>Search published items, quests, NPCs, spells, zones, and custom Esteria content.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshDatabaseButton">Refresh</button>
+            </div>
+            <div class="page-search-row database-search-row">
+              <input id="databaseSearchInput" type="search" placeholder="Search by name or ID" autocomplete="off" />
+              <select id="databaseTypeFilter">
+                <option value="all">All types</option>
+                <option value="item">Items</option>
+                <option value="quest">Quests</option>
+                <option value="npc">NPCs</option>
+                <option value="spell">Spells</option>
+                <option value="zone">Zones</option>
+              </select>
+            </div>
+            <div class="database-layout">
+              <div class="result-list" id="databaseResults"></div>
+              <div class="detail-panel" id="databaseDetail">
+                <div class="empty-detail">Select a database entry to inspect it.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="launcher-page" id="toolsSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Launcher Tools</h2>
+                <p>Repair, inspect, and maintain the local Esteria client.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshDiagnosticsButton">Refresh diagnostics</button>
+            </div>
+            <div class="tools-grid">
+              <button class="tool-card" type="button" id="toolVerifyButton"><strong>Verify client</strong><span>Check managed files against the active CDN manifest.</span></button>
+              <button class="tool-card" type="button" id="toolRepairButton"><strong>Repair / update</strong><span>Download missing or corrupt client files.</span></button>
+              <button class="tool-card" type="button" id="toolOpenFolderButton"><strong>Open install folder</strong><span>Open the selected Esteria client directory.</span></button>
+              <button class="tool-card" type="button" data-client-folder="Interface\\AddOns"><strong>Open AddOns</strong><span>Jump directly to Interface\\AddOns.</span></button>
+              <button class="tool-card" type="button" data-client-folder="Screenshots"><strong>Open Screenshots</strong><span>Open your local screenshot folder.</span></button>
+              <button class="tool-card" type="button" data-client-folder="Logs"><strong>Open Logs</strong><span>Open the client logs directory.</span></button>
+              <button class="tool-card" type="button" data-client-folder="WTF"><strong>Open WTF</strong><span>Inspect local client configuration and account settings.</span></button>
+              <button class="tool-card" type="button" id="toolClearWdbButton"><strong>Clear WDB</strong><span>Remove cached server data before the next launch.</span></button>
+              <button class="tool-card" type="button" id="toolClearCacheButton"><strong>Clear launcher cache</strong><span>Force file hashes to be recalculated on the next verification.</span></button>
+              <button class="tool-card" type="button" id="toolLauncherUpdateButton"><strong>Check launcher update</strong><span>Check for a newer signed Esteria Launcher release.</span></button>
+            </div>
+            <div class="diagnostics-panel">
+              <div class="diagnostics-heading"><h3>Diagnostics</h3><button type="button" id="copyDiagnosticsButton">Copy</button></div>
+              <pre id="diagnosticsOutput">Loading diagnostics…</pre>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <aside class="social-panel">
+      <button class="profile-row profile-row-button" id="profileButton" type="button" aria-label="Edit player profile and presence">
+        <div class="avatar" id="profileAvatar">P</div>
+        <div class="profile-copy">
+          <strong id="profileDisplayName">Player</strong>
+          <span class="profile-presence"><span class="status-dot" id="profilePresenceDot"></span><span id="profilePresenceText">Online</span></span>
+          <small id="profileStatusMessage"></small>
+        </div>
+      </button>
+
+      <div class="social-tools">
+        <button type="button" id="addFriendButton" aria-label="Add friend" title="Add friend">＋</button>
+        <button type="button" id="socialSettingsButton" aria-label="Social settings" title="Social settings">⚙</button>
+        <label class="social-search" aria-label="Search friends">
+          <input id="socialSearch" type="search" placeholder="Search friends" autocomplete="off" />
+          <span>⌕</span>
+        </label>
+      </div>
+
+      <div class="friends-list" id="friendsList">
+        <div class="friend-group-heading">Friends</div>
+        <div class="friends-empty">No friends added yet.</div>
+      </div>
+
+      <button class="chats-button" id="chatsButton" type="button">Chats <span id="chatUnreadCount" hidden></span></button>
+    </aside>
+  </div>
+
+  <div class="settings-backdrop" id="settingsBackdrop" hidden>
+    <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="dialog-header">
+        <h2 id="settingsTitle">Game settings</h2>
+        <button id="closeSettingsButton" type="button" aria-label="Close settings">×</button>
+      </div>
+      <div class="dialog-body">
+        <label for="gamePathInput">Esteria install folder</label>
+        <div class="path-row">
+          <input id="gamePathInput" type="text" placeholder="C:\Games\Esteria" spellcheck="false" />
+          <button class="field-button" id="browseGameButton" type="button">Browse</button>
+          <button class="field-button" id="detectGameButton" type="button">Detect</button>
+        </div>
+        <p>This folder may be empty. The launcher can build a complete Esteria client here from your CDN.</p>
+        <div class="maintenance-actions">
+          <button class="field-button" id="openGameFolderButton" type="button">Open folder</button>
+          <button class="field-button" id="clearWdbButton" type="button">Clear WDB</button>
+        </div>
+
+        <label for="manifestSourceInput">Client manifest</label>
+        <input id="manifestSourceInput" type="text" placeholder="https://cdn.example.com/api/v2/client/live/manifest.json" spellcheck="false" />
+        <p>The SHA-256 manifest controls client installation, verification, updates, and repair.</p>
+
+        <label for="addonCatalogInput">Add-on catalog</label>
+        <input id="addonCatalogInput" type="text" placeholder="https://cdn.example.com/api/v2/addons/catalog.json" spellcheck="false" />
+        <p>Optional. Catalog packages are downloaded, verified, and installed into Interface\AddOns.</p>
+
+        <label for="newsSourceInput">News feed</label>
+        <input id="newsSourceInput" type="text" placeholder="https://cdn.example.com/api/v2/news.json" spellcheck="false" />
+
+        <label for="statusSourceInput">Server status</label>
+        <input id="statusSourceInput" type="text" placeholder="https://cdn.example.com/api/v2/status" spellcheck="false" />
+
+        <label for="socialSourceInput">Social presence snapshot</label>
+        <input id="socialSourceInput" type="text" placeholder="https://cdn.example.com/api/v2/social.json" spellcheck="false" />
+
+        <label for="accountApiInput">Esteria account API</label>
+        <input id="accountApiInput" type="text" placeholder="http://planetkai.hopto.org:7384" spellcheck="false" />
+        <p>Hosts the account, presence, friend, chat, and profile-picture endpoints used when you sign in.</p>
+
+        <label for="armorySourceInput">Armory snapshot</label>
+        <input id="armorySourceInput" type="text" placeholder="https://cdn.example.com/api/v2/armory/characters.json" spellcheck="false" />
+
+        <label for="databaseSourceInput">World database snapshot</label>
+        <input id="databaseSourceInput" type="text" placeholder="https://cdn.example.com/api/v2/database/index.json" spellcheck="false" />
+
+        <label for="patchListInput">Patch list</label>
+        <input id="patchListInput" type="text" placeholder="patch.esteria.gg" spellcheck="false" />
+        <p>Optional. When set, the launcher writes this and your realm host into WTF\Config.wtf before Play.</p>
+
+        <div class="settings-grid">
+          <div>
+            <label for="realmHostInput">Realm host</label>
+            <input id="realmHostInput" type="text" placeholder="127.0.0.1" spellcheck="false" />
+          </div>
+          <div>
+            <label for="realmPortInput">Realm port</label>
+            <input id="realmPortInput" type="number" min="1" max="65535" value="3724" />
+          </div>
+        </div>
+        <div class="settings-options">
+          <label><input id="cleanWdbInput" type="checkbox" checked /> Clean WDB before launching</label>
+          <label><input id="minimizeOnPlayInput" type="checkbox" checked /> Minimize launcher while WoW is running</label>
+          <label><input id="autoUpdateAddonsInput" type="checkbox" checked /> Automatically update launcher-managed add-ons</label>
+        </div>
+        <p id="settingsLocation" class="settings-location"></p>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="cancelSettingsButton" type="button">Cancel</button>
+        <button class="dialog-primary" id="saveSettingsButton" type="button">Save</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="profileBackdrop" hidden>
+    <section class="settings-dialog social-dialog" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
+      <div class="dialog-header">
+        <h2 id="profileDialogTitle">Profile and presence</h2>
+        <button id="closeProfileButton" type="button" aria-label="Close profile">×</button>
+      </div>
+      <div class="dialog-body">
+        <label for="profileNameInput">Display name</label>
+        <input id="profileNameInput" type="text" maxlength="32" autocomplete="off" />
+        <label for="profilePresenceSelect">Presence</label>
+        <select id="profilePresenceSelect" class="dialog-select">
+          <option value="online">Online</option>
+          <option value="away">Away</option>
+          <option value="dnd">Do not disturb</option>
+          <option value="offline">Appear offline</option>
+        </select>
+        <label for="profileStatusInput">Status message</label>
+        <input id="profileStatusInput" type="text" maxlength="120" placeholder="What are you up to?" autocomplete="off" />
+        <label for="favoriteCharacterInput">Favorite character</label>
+        <input id="favoriteCharacterInput" type="text" maxlength="32" placeholder="Character name" autocomplete="off" />
+      </div>
+
+      <div class="account-panel">
+        <div class="account-head">
+          <span class="account-avatar" id="accountAvatar">?</span>
+          <div class="account-copy">
+            <strong id="accountName">Not signed in</strong>
+            <small id="accountHint">Create an Esteria account to share your presence, friends, and chat with other players.</small>
+          </div>
+        </div>
+        <div class="account-signed-out" id="accountSignedOut">
+          <label for="accountUsernameInput">Account name</label>
+          <input id="accountUsernameInput" type="text" maxlength="20" autocomplete="username" spellcheck="false" placeholder="3-20 letters, numbers, dot, dash, underscore" />
+          <label for="accountPasswordInput">Password</label>
+          <input id="accountPasswordInput" type="password" maxlength="128" autocomplete="current-password" />
+          <div class="account-actions">
+            <button class="dialog-primary" id="accountLoginButton" type="button">Sign in</button>
+            <button class="dialog-secondary" id="accountRegisterButton" type="button">Create account</button>
+          </div>
+        </div>
+        <div class="account-signed-in" id="accountSignedIn" hidden>
+          <div class="account-actions">
+            <button class="dialog-secondary" id="accountAvatarButton" type="button">Change picture</button>
+            <button class="dialog-secondary" id="accountAvatarClearButton" type="button">Remove picture</button>
+            <button class="dialog-danger" id="accountLogoutButton" type="button">Sign out</button>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="cancelProfileButton" type="button">Cancel</button>
+        <button class="dialog-primary" id="saveProfileButton" type="button">Save</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="socialSettingsBackdrop" hidden>
+    <section class="settings-dialog social-dialog" role="dialog" aria-modal="true" aria-labelledby="socialSettingsTitle">
+      <div class="dialog-header">
+        <h2 id="socialSettingsTitle">Social settings</h2>
+        <button id="closeSocialSettingsButton" type="button" aria-label="Close social settings">×</button>
+      </div>
+      <div class="dialog-body settings-options social-preferences">
+        <label><input id="showOnlineOnlyInput" type="checkbox" /> Show only online friends</label>
+        <label><input id="desktopNotificationsInput" type="checkbox" /> Desktop chat notifications</label>
+        <label><input id="showCharacterDetailsInput" type="checkbox" /> Show character details in friends list</label>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="cancelSocialSettingsButton" type="button">Cancel</button>
+        <button class="dialog-primary" id="saveSocialSettingsButton" type="button">Save</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="friendBackdrop" hidden>
+    <section class="settings-dialog social-dialog" role="dialog" aria-modal="true" aria-labelledby="friendDialogTitle">
+      <div class="dialog-header">
+        <h2 id="friendDialogTitle">Add friend</h2>
+        <button id="closeFriendButton" type="button" aria-label="Close add friend">×</button>
+      </div>
+      <div class="dialog-body">
+        <label for="friendNameInput">Player or character name</label>
+        <input id="friendNameInput" type="text" maxlength="32" autocomplete="off" />
+        <p id="friendHint">Sign in to your Esteria account to find players. Without an account, friends are stored on this PC and matched against the shared presence snapshot.</p>
+        <div class="discover-results" id="discoverResults" hidden></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="cancelFriendButton" type="button">Cancel</button>
+        <button class="dialog-primary" id="saveFriendButton" type="button">Add friend</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="settings-backdrop" id="chatBackdrop" hidden>
+    <section class="chat-dialog" role="dialog" aria-modal="true" aria-labelledby="chatDialogTitle">
+      <div class="dialog-header">
+        <div>
+          <h2 id="chatDialogTitle">Chats</h2>
+          <div class="chat-subtitle" id="chatSubtitle">Select a friend</div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="chat-remove-friend" id="removeChatFriendButton" type="button" hidden>Remove friend</button>
+          <button id="closeChatButton" type="button" aria-label="Close chats">×</button>
+        </div>
+      </div>
+      <div class="chat-layout">
+        <div class="chat-thread-list" id="chatThreadList"></div>
+        <div class="chat-main">
+          <div class="chat-messages" id="chatMessages"><div class="empty-detail">Select a conversation.</div></div>
+          <form class="chat-compose" id="chatForm">
+            <input id="chatInput" type="text" maxlength="1000" placeholder="Message" autocomplete="off" disabled />
+            <button type="submit" id="sendChatButton" disabled>Send</button>
+          </form>
+          <div class="chat-local-note" id="chatLocalNote">Chat history persists on this PC. Sign in to your Esteria account to chat with players through the server.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

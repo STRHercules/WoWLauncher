@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Esteria mark">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e2bb73"/>
+      <stop offset="1" stop-color="#8a5f2c"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 4 50 14v20c0 12-7.4 21-18 26C21.4 55 14 46 14 34V14L32 4Z" fill="#1a1d22" stroke="url(#g)" stroke-width="3"/>
+  <path d="m22 20 10-7 10 7-6 5 7 4-11 18-11-18 7-4-6-5Z" fill="none" stroke="url(#g)" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="32" cy="29" r="3" fill="#e1b76e"/>
+</svg>

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Esteria Launcher",
+  "version": "0.3.1",
+  "identifier": "gg.esteria.launcher",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Esteria Launcher",
+        "width": 1540,
+        "height": 960,
+        "minWidth": 1050,
+        "minHeight": 720,
+        "decorations": false,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"],
+    "shortDescription": "Esteria desktop launcher",
+    "longDescription": "Launch, update, and follow development news for Esteria."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5NzczRjk4NzAwNjU3MzMKUldRelZ3WndtRDkzMlhjUW9uck5lbTl5d2cvUm9yQ1BlczFYb2VFWEhxdU5sNWExZmIwU3hQQ28K",
+      "endpoints": [
+        "http://planetkai.hopto.org:7384/launcher-updates/latest.json"
+      ],
+      "dangerousInsecureTransportProtocol": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
