@@ -1,0 +1,9 @@
+{
+  "manifest": 1,
+  "extension": {
+    "id": "wxl-esteria-chat", "version": "1.0.0", "abi": "1.1",
+    "entry": "wxl-esteria-chat.dll", "assets": [], "requires": {}, "conflicts": [], "hooks": []
+  },
+  "deploy": { "mode": "release", "match": "*.dll" },
+  "license": "GPL-3.0-or-later", "signature": null
+}

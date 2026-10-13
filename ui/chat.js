@@ -13,6 +13,10 @@ const state = {
   lastUnreadTotal: 0,
   timer: null
 };
+state.pendingAttachments = [];
+state.sendAttempt = null;
+state.capabilities = null;
+state.loading = false;
 
 const incomingSound = new Audio('./assets/audio/incoming.mp3');
 const outgoingSound = new Audio('./assets/audio/outgoing.mp3');
@@ -94,6 +98,8 @@ async function api(path, { method = 'GET', body } = {}) {
   if (!base) throw new Error('The Esteria account API address is not set.');
   const response = await fetch(`${base}${path}`, {
     method,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(state.account?.token ? { authorization: `Bearer ${state.account.token}` } : {})
@@ -128,7 +134,7 @@ function threadList() {
     username: '',
     avatarUrl: '',
     presence: 'online',
-    unread: state.unread[groupKey(group.id)] || 0,
+    unread: group.unread || 0,
     preview: state.preview[groupKey(group.id)] || `${group.members.length} members`
   }));
   return [...groups, ...friends];
@@ -234,6 +240,8 @@ function findThread(key) {
 async function openThread(key) {
   const thread = findThread(key);
   if (!thread) return;
+  await cancelAttachments();
+  state.sendAttempt = null;
   state.active = thread;
   state.unread[key] = 0;
   renderThreads();
@@ -246,6 +254,8 @@ async function openThread(key) {
 }
 
 function closeThread() {
+  void cancelAttachments();
+  ChatMedia.clear();
   state.active = null;
   if (state.timer) clearInterval(state.timer);
   state.timer = null;
@@ -254,6 +264,7 @@ function closeThread() {
 }
 
 function renderMessages() {
+  ChatMedia.clear();
   const list = $('#messageList');
   list.replaceChildren();
   const key = state.active?.key;
@@ -274,6 +285,14 @@ function renderMessages() {
     const meta = document.createElement('small');
     meta.textContent = `${message.mine ? 'You' : message.from} · ${new Date(message.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
     block.append(body, meta);
+    for (const attachment of message.attachments || []) block.append(ChatMedia.render(attachment));
+    if (!message.mine) {
+      const report = document.createElement('button'); report.type = 'button'; report.className = 'report-message'; report.textContent = 'Report';
+      report.addEventListener('click', () => {
+        state.reportMessage = {conversation: state.active.key, messageId: message.id};
+        $('#reportReason').value = ''; $('#reportBackdrop').hidden = false; $('#reportReason').focus();
+      }); block.append(report);
+    }
     list.append(block);
   });
   list.scrollTop = list.scrollHeight;
@@ -285,6 +304,7 @@ function normalizeDm(message) {
     from: message.from === state.account?.username ? 'You' : friendName(message.from),
     mine: message.from === state.account?.username,
     body: message.body,
+    attachments: message.attachments || [],
     at: Date.parse(message.createdAt) || Date.now()
   };
 }
@@ -294,34 +314,27 @@ function friendName(username) {
   return friend?.displayName || username;
 }
 
-async function loadMessages() {
-  if (!state.active) return;
-  const key = state.active.key;
-  const since = state.since[key] || 0;
-  let incoming = 0;
-  if (state.active.kind === 'group') {
-    const payload = await api(`/api/v2/social/groups/${state.active.id}/messages?since=${since}`);
-    const normalized = (payload?.messages || []).map((message) => ({
-      id: message.id,
-      from: friendName(message.from),
-      mine: message.from === state.account?.username,
-      body: message.body,
-      at: Date.parse(message.createdAt) || Date.now()
-    }));
-    incoming = normalized.filter((message) => !message.mine).length;
-    state.messages[key] = [...(state.messages[key] || []), ...normalized];
-  } else {
-    const payload = await api(`/api/v2/social/messages?with=${encodeURIComponent(state.active.username)}&since=${since}`);
-    const normalized = (payload?.messages || []).map(normalizeDm);
-    incoming = normalized.filter((message) => !message.mine).length;
-    state.messages[key] = [...(state.messages[key] || []), ...normalized];
-  }
-  const all = state.messages[key] || [];
-  if (all.length) {
-    state.since[key] = all[all.length - 1].id;
-    state.preview[key] = all[all.length - 1].body;
-  }
-  return incoming;
+async function loadMessages(before) {
+  if (!state.active || state.loading) return 0;
+  const thread = state.active;
+  const key = thread.key;
+  state.loading = true;
+  try {
+    const payload = await api('/api/v2/social/chat/op', { method: 'POST', body: {
+      op: 'history', conversation: key, since: before ? 0 : state.since[key] || 0, ...(before ? { before } : {})
+    } });
+    const normalized = (payload.messages || []).map(normalizeDm);
+    const existing = new Map((state.messages[key] || []).map(m => [m.id, m]));
+    const incoming = normalized.filter(m => !m.mine && !existing.has(m.id)).length;
+    normalized.forEach(m => existing.set(m.id, m));
+    state.messages[key] = [...existing.values()].sort((a, b) => a.id - b.id).slice(-1000);
+    if (normalized.length && !before) state.since[key] = normalized[normalized.length - 1].id;
+    const last = state.messages[key].at(-1);
+    if (last) state.preview[key] = last.body;
+    if (state.active?.key === key && document.visibilityState === 'visible' && document.hasFocus() && last)
+      await api('/api/v2/social/chat/op', { method: 'POST', body: { op: 'read', conversation: key, cursor: Math.min(last.id, state.since[key] || 0) } });
+    return incoming;
+  } finally { state.loading = false; }
 }
 
 async function pollActive() {
@@ -329,12 +342,13 @@ async function pollActive() {
   try {
     const before = (state.messages[state.active.key] || []).length;
     const incoming = await loadMessages();
-    if (incoming && (state.messages[state.active.key] || []).length > before) {
+    if (incoming && state.active && (state.messages[state.active.key] || []).length > before) {
       playSound(incomingSound);
       renderMessages();
       void flashIfUnfocused();
     }
   } catch (error) {
+    $('#chatStatus').textContent = 'Disconnected. Messages will retry when the service returns.';
     console.warn('Chat poll failed', error);
   }
 }
@@ -343,6 +357,7 @@ async function refreshFeed() {
   const payload = await api('/api/v2/social/heartbeat', { method: 'POST', body: {} });
   if (!payload) return;
   state.friends = payload.friends || [];
+  $('#privacyInput').checked = payload.me?.shareCharacterPresence === true;
   const total = Number(payload.unread) || 0;
   if (state.seeded && total > state.lastUnreadTotal) {
     playSound(incomingSound);
@@ -366,33 +381,29 @@ async function sendMessage(event) {
   event.preventDefault();
   const input = $('#messageInput');
   const body = input.value.trim();
-  if (!body || !state.active) return;
+  if ((!body && !state.pendingAttachments.length) || !state.active || $('#sendButton').disabled) return;
+  const thread = state.active;
+  const attachmentIds = state.pendingAttachments.map(a => a.id);
+  const signature = JSON.stringify([thread.key, body, attachmentIds]);
+  if (state.sendAttempt?.signature !== signature) state.sendAttempt = { signature, requestId: crypto.randomUUID() };
+  $('#sendButton').disabled = true;
   try {
-    if (state.active.kind === 'group') {
-      const payload = await api(`/api/v2/social/groups/${state.active.id}/messages`, { method: 'POST', body: { body } });
-      state.messages[state.active.key] = [...(state.messages[state.active.key] || []), {
-        id: payload.message.id,
-        from: 'You',
-        mine: true,
-        body: payload.message.body,
-        at: Date.parse(payload.message.createdAt) || Date.now()
-      }];
-    } else {
-      const payload = await api('/api/v2/social/messages', {
-        method: 'POST',
-        body: { to: state.active.username, body }
-      });
-      state.messages[state.active.key] = [...(state.messages[state.active.key] || []), normalizeDm(payload.message)];
-    }
-    const all = state.messages[state.active.key];
-    state.since[state.active.key] = all[all.length - 1].id;
-    state.preview[state.active.key] = body;
+    const payload = await api('/api/v2/social/chat/op', { method: 'POST', body: {
+      op: 'send', conversation: thread.key, body, attachments: attachmentIds, requestId: state.sendAttempt.requestId
+    } });
+    const messages = new Map((state.messages[thread.key] || []).map(m => [m.id, m]));
+    messages.set(payload.message.id, normalizeDm(payload.message));
+    state.messages[thread.key] = [...messages.values()].sort((a, b) => a.id - b.id);
+    state.preview[thread.key] = body;
+    state.pendingAttachments = [];
+    state.sendAttempt = null;
+    renderPendingAttachments();
     input.value = '';
     playSound(outgoingSound);
     renderMessages();
   } catch (error) {
     $('#chatStatus').textContent = String(error);
-  }
+  } finally { $('#sendButton').disabled = false; }
 }
 
 function openGroupDialog() {
@@ -451,6 +462,7 @@ async function boot() {
   }
   $('#chatStatus').textContent = `Signed in as ${state.account.username}`;
   try {
+    await refreshCapabilities();
     await Promise.all([refreshFeed(), refreshGroups()]);
     await Promise.all(state.friends.map(async (friend) => {
       const key = dmKey(friend.username);
@@ -476,6 +488,7 @@ async function boot() {
   window.addEventListener('focus', () => {
     void consumePendingChat();
     refreshFeed().catch(() => {});
+    if (state.active) void loadMessages().then(renderMessages).catch(() => {});
   });
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void consumePendingChat();
@@ -492,8 +505,127 @@ $('#newGroupButton').addEventListener('click', openGroupDialog);
 $('#cancelGroupButton').addEventListener('click', () => { $('#groupBackdrop').hidden = true; });
 $('#createGroupButton').addEventListener('click', createGroup);
 $('#composer').addEventListener('submit', sendMessage);
+$('#attachButton').addEventListener('click', () => $('#attachmentInput').click());
+$('#attachmentInput').addEventListener('change', uploadAttachments);
+$('#autoplayInput').checked = localStorage.getItem('chat-autoplay') !== 'false';
+$('#autoplayInput').addEventListener('change', event => ChatMedia.setAutoplay(event.target.checked));
+$('#privacyInput').addEventListener('change', async event => {
+  try { await api('/api/v2/social/chat/op', {method: 'POST', body: {op: 'privacy', shareCharacterPresence: event.target.checked}}); }
+  catch (error) { event.target.checked = false; $('#chatStatus').textContent = String(error); }
+});
+$('#olderButton').addEventListener('click', async () => {
+  const first = state.messages[state.active?.key]?.[0];
+  if (!first) return;
+  const oldHeight = $('#messageList').scrollHeight;
+  try { await loadMessages(first.id); renderMessages(); $('#messageList').scrollTop = $('#messageList').scrollHeight - oldHeight; }
+  catch (error) { $('#chatStatus').textContent = String(error); }
+});
+$('#linkAccountButton').addEventListener('click', () => { $('#linkBackdrop').hidden = false; void refreshLinks(); });
+$('#closeLinkButton').addEventListener('click', () => { $('#linkBackdrop').hidden = true; });
+$('#createLinkButton').addEventListener('click', async () => {
+  try {
+    const challenge = await api('/api/v2/social/chat/links/challenge', { method: 'POST', body: {} });
+    $('#linkCode').textContent = `/ec link ${challenge.code}\nExpires ${new Date(challenge.expiresAt).toLocaleTimeString()}`;
+  } catch (error) { $('#linkInstructions').textContent = String(error); }
+});
+$('#cancelReportButton').addEventListener('click', () => { $('#reportBackdrop').hidden = true; });
+$('#sendReportButton').addEventListener('click', async () => {
+  const reason = $('#reportReason').value.trim(); if (!reason || !state.reportMessage) return;
+  try {
+    await api('/api/v2/social/chat/op', {method: 'POST', body: {op: 'report', ...state.reportMessage, reason}});
+    $('#reportBackdrop').hidden = true; $('#chatStatus').textContent = 'Report submitted to the server owner.';
+  } catch (error) { $('#chatStatus').textContent = String(error); }
+});
 $('#groupBackdrop').addEventListener('click', (event) => {
   if (event.target === $('#groupBackdrop')) $('#groupBackdrop').hidden = true;
 });
 
-boot();
+async function refreshCapabilities() {
+  state.capabilities = await api('/api/v2/social/chat/capabilities');
+  ChatMedia.configure(state.capabilities, apiBase(), () => `Bearer ${state.account.token}`);
+  $('#attachButton').hidden = !state.capabilities.features.attachments;
+  $('#newGroupButton').hidden = !state.capabilities.features.groups;
+  $('#privacyLabel').hidden = !state.capabilities.features.characterPresence;
+  document.title = `${state.capabilities.productName} Chat`;
+  const brand = state.capabilities.branding;
+  for (const [key, variable] of Object.entries({background: '--bg', panel: '--panel', accent: '--accent', text: '--text'}))
+    if (/^#[0-9a-f]{6}$/i.test(brand[key])) document.documentElement.style.setProperty(variable, brand[key]);
+  if (/^[A-Za-z0-9_.-]+\.(ttf|otf)$/.test(brand.font) && state.font !== brand.font) {
+    state.font = brand.font;
+    const font = new FontFace('Chat Sans', `url("./assets/chat/${brand.font}")`);
+    font.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
+  }
+}
+function renderPendingAttachments() {
+  const root = $('#pendingAttachments'); root.replaceChildren();
+  for (const attachment of state.pendingAttachments) {
+    const button = document.createElement('button'); button.type = 'button';
+    button.textContent = `${attachment.format.toUpperCase()} · ${Math.ceil(attachment.bytes / 1024)} KiB — Cancel`;
+    button.addEventListener('click', async () => {
+      try {
+        await api(`/api/v2/social/chat/attachments/${attachment.id}`, { method: 'DELETE' });
+        state.pendingAttachments = state.pendingAttachments.filter(a => a.id !== attachment.id); renderPendingAttachments();
+      } catch (error) { $('#chatStatus').textContent = String(error); }
+    }); root.append(button);
+  }
+}
+async function cancelAttachments() {
+  const pending = state.pendingAttachments; state.pendingAttachments = []; renderPendingAttachments();
+  await Promise.all(pending.map(a => api(`/api/v2/social/chat/attachments/${a.id}`, { method: 'DELETE' }).catch(() => {})));
+}
+async function uploadAttachments() {
+  const files = [...$('#attachmentInput').files]; $('#attachmentInput').value = '';
+  if (!state.active || !files.length) return;
+  const thread = state.active;
+  const limits = state.capabilities?.media;
+  if (!limits || !ChatMedia.withinLimits([...state.pendingAttachments.map(a => ({ size: a.bytes, type: `image/${a.format === 'jpg' ? 'jpeg' : a.format}` })), ...files], limits)) {
+    $('#chatStatus').textContent = 'Images exceed the server’s type, file count, or upload size limits.'; return;
+  }
+  $('#sendButton').disabled = true; $('#attachButton').disabled = true;
+  try {
+    for (const file of files) {
+      const response = await fetch(`${apiBase()}/api/v2/social/chat/attachments?conversation=${encodeURIComponent(thread.key)}`, {
+        method: 'POST', body: file, headers: { authorization: `Bearer ${state.account.token}`, 'content-type': file.type }, signal: AbortSignal.timeout(30000)
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message);
+      if (state.active?.key !== thread.key) { await api(`/api/v2/social/chat/attachments/${payload.attachment.id}`, { method: 'DELETE' }); break; }
+      state.pendingAttachments.push(payload.attachment); renderPendingAttachments();
+    }
+  } catch (error) { $('#chatStatus').textContent = `Upload failed: ${error.message}. Select the file again to retry.`; }
+  finally { $('#sendButton').disabled = false; $('#attachButton').disabled = false; }
+}
+async function refreshLinks() {
+  try {
+    const result = await api('/api/v2/social/chat/links');
+    const root = $('#linkedAccounts'); root.replaceChildren();
+    if (result.pending) {
+      const p = result.pending;
+      const confirm = document.createElement('button'); confirm.type = 'button';
+      confirm.textContent = `Confirm @${p.username} ↔ ${p.name} (game account ${p.gameId}, ${p.serverId}/${p.realmId})`;
+      confirm.addEventListener('click', async () => {
+        try { await api('/api/v2/social/chat/links/confirm', { method: 'POST', body: { gameId: p.gameId } }); $('#linkCode').textContent = ''; await refreshLinks(); }
+        catch (error) { $('#linkInstructions').textContent = String(error); }
+      }); root.append(confirm);
+    }
+    for (const link of result.links) {
+      const unlink = document.createElement('button'); unlink.type = 'button';
+      unlink.textContent = `Unlink game account ${link.gameId} (${link.serverId}/${link.realmId})`;
+      unlink.addEventListener('click', async () => {
+        try { await api(`/api/v2/social/chat/links/${link.id}`, { method: 'DELETE' }); await refreshLinks(); }
+        catch (error) { $('#linkInstructions').textContent = String(error); }
+      }); root.append(unlink);
+    }
+  } catch (error) { $('#linkInstructions').textContent = String(error); }
+}
+setInterval(() => { if (!$('#linkBackdrop').hidden) void refreshLinks(); }, 3000);
+setInterval(async () => {
+  if (!state.account) return;
+  try {
+    await refreshCapabilities();
+    const ids = ChatMedia.ids();
+    if (ids.length) ChatMedia.update((await api('/api/v2/social/chat/op', { method: 'POST', body: { op: 'attachmentMetadata', ids } })).attachments);
+  } catch (error) { $('#chatStatus').textContent = 'Disconnected; media authorization could not be refreshed.'; ChatMedia.clear(); }
+}, 30000);
+window.addEventListener('beforeunload', () => ChatMedia.clear());
+boot().catch(error => { $('#chatStatus').textContent = String(error); });

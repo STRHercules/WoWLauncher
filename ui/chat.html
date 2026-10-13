@@ -19,10 +19,19 @@
     </header>
 
     <section id="threadList" class="thread-list"></section>
+    <div class="chat-options">
+      <button id="linkAccountButton" type="button">Game accounts</button>
+      <label><input id="autoplayInput" type="checkbox" /> Autoplay GIFs</label>
+      <label id="privacyLabel" hidden><input id="privacyInput" type="checkbox" /> Share character</label>
+    </div>
 
     <section id="conversation" class="conversation" hidden>
       <div id="messageList" class="message-list"></div>
+      <button id="olderButton" type="button">Load older messages</button>
+      <div id="pendingAttachments" aria-live="polite"></div>
       <form id="composer" class="composer">
+        <button id="attachButton" type="button" aria-label="Attach images">+</button>
+        <input id="attachmentInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden />
         <input id="messageInput" type="text" maxlength="1000" placeholder="Message" autocomplete="off" />
         <button type="submit" id="sendButton">Send</button>
       </form>
@@ -45,6 +54,28 @@
     </section>
   </div>
 
+  <div id="linkBackdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" aria-label="Link game account">
+      <h2>Game accounts</h2>
+      <p id="linkInstructions">Create a code, enter /ec link CODE in game, then confirm the identities here.</p>
+      <button id="createLinkButton" type="button">Create link code</button>
+      <pre id="linkCode"></pre>
+      <div id="linkedAccounts"></div>
+      <div class="dialog-actions"><button id="closeLinkButton" type="button">Close</button></div>
+    </section>
+  </div>
+  <div id="reportBackdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" aria-label="Report message">
+      <h2>Report message</h2>
+      <label for="reportReason">Reason</label>
+      <input id="reportReason" maxlength="500" autocomplete="off" />
+      <div class="dialog-actions">
+        <button id="cancelReportButton" type="button">Cancel</button>
+        <button id="sendReportButton" type="button">Report</button>
+      </div>
+    </section>
+  </div>
+  <script src="./chat-media.js"></script>
   <script src="./chat.js"></script>
 </body>
 </html>

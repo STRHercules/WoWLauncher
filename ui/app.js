@@ -519,6 +519,9 @@ async function loadAccountThread(friendName) {
   try {
     const payload = await accountRequest(`/api/v2/social/messages?with=${encodeURIComponent(friendName)}&since=0`);
     appState.accountThreads[friendName.toLowerCase()] = Array.isArray(payload?.messages) ? payload.messages : [];
+    const last = appState.accountThreads[friendName.toLowerCase()].at(-1);
+    if (last && !$('#chatBackdrop').hidden && appState.activeChatFriend?.toLowerCase() === friendName.toLowerCase() && document.hasFocus())
+      await accountRequest('/api/v2/social/chat/op', {method: 'POST', body: {op: 'read', conversation: `dm:${friendName}`, cursor: last.id}});
   } catch (error) {
     console.warn('Could not load that conversation', error);
   }
@@ -1602,6 +1605,7 @@ async function openChatDialog(friendName = null) {
   const friends = socialFriends();
   if (!appState.activeChatFriend && friends.length) appState.activeChatFriend = friends[0].name;
   updateChatNote();
+  $('#chatBackdrop').hidden = false;
   if (accountSession() && appState.activeChatFriend) await loadAccountThread(appState.activeChatFriend);
   renderChatDialog();
   $('#chatBackdrop').hidden = false;
@@ -1615,12 +1619,14 @@ async function sendChatMessage(event) {
   event.preventDefault();
   const body = $('#chatInput').value.trim();
   if (!body || !appState.activeChatFriend) return;
+  const signature = `${appState.activeChatFriend}:${body}`;
+  if (appState.chatSendAttempt?.signature !== signature) appState.chatSendAttempt = {signature, requestId: crypto.randomUUID()};
   try {
     if (accountSession()) {
       const key = appState.activeChatFriend.toLowerCase();
       const payload = await accountRequest('/api/v2/social/messages', {
         method: 'POST',
-        body: { to: appState.activeChatFriend, body }
+        body: { to: appState.activeChatFriend, body, requestId: appState.chatSendAttempt.requestId }
       });
       appState.accountThreads[key] = [...(appState.accountThreads[key] || []), payload.message];
       playChatSound('outgoing');
@@ -1632,6 +1638,7 @@ async function sendChatMessage(event) {
       });
     }
     $('#chatInput').value = '';
+    appState.chatSendAttempt = null;
     renderChatDialog();
     renderSocialPanel();
   } catch (error) {

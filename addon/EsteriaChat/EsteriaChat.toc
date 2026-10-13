@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: Esteria Chat
+## Notes: Shared account chat for a configured AzerothCore social bridge.
+## Author: Esteria
+## Version: 1.0.0
+## SavedVariables: EsteriaChatDB
+Config.lua
+Json.lua
+Transport.lua
+Chat.lua

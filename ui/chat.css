@@ -1,3 +1,4 @@
+@font-face { font-family: "Chat Sans"; src: url("./assets/chat/NotoSans-Regular.ttf") format("truetype"); font-display: swap; }
 :root {
   --bg: #14171c;
   --panel: #1a1e24;
@@ -15,7 +16,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.45 "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.45 "Chat Sans", sans-serif;
 }
 .chat-app { display: flex; flex-direction: column; height: 100vh; }
 .chat-top {
@@ -31,6 +32,7 @@ body {
 }
 .ghost:hover { background: #262b33; }
 button[hidden] { display: none !important; }
+[hidden] { display: none !important; }
 
 .thread-list { flex: 1; overflow-y: auto; }
 .section-label { padding: 10px 12px 4px; color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
@@ -88,3 +90,15 @@ button[hidden] { display: none !important; }
 .group-friends label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #2c323a; border-radius: 4px; color: var(--text); font-size: 12px; margin: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .dialog-actions .primary { height: 30px; padding: 0 14px; border-radius: 4px; border: 1px solid #9c7034; background: #9c7034; color: #fff; cursor: pointer; }
+.chat-options { display: flex; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.chat-options button, #olderButton, #pendingAttachments button, #linkBackdrop button {
+  border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--text); padding: 5px 8px; cursor: pointer;
+}
+.chat-options label { color: var(--muted); font-size: 11px; }
+.chat-attachment { display: block; max-width: 100%; min-height: 36px; margin-top: 4px; padding: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+.chat-attachment img, .chat-attachment canvas { display: block; max-width: 100%; max-height: 240px; object-fit: contain; }
+.report-message { padding: 0; margin-top: 2px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; }
+#pendingAttachments { padding: 0 12px; font-size: 11px; }
+#linkCode { white-space: pre-wrap; user-select: text; color: #f0d19d; }
+.composer input[type=file][hidden] { display: none; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
