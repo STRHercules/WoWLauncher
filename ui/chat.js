@@ -83,7 +83,7 @@ async function invokeTauri(command, args = {}) {
 }
 
 function apiBase() {
-  const base = state.account?.apiBase || state.profile?.apiBase || '';
+  const base = state.account?.apiBase || state.settings?.accountApi || '';
   return String(base).trim().replace(/\/+$/, '');
 }
 
@@ -446,6 +446,34 @@ async function createGroup() {
   }
 }
 
+let started = false;
+
+async function startOnce() {
+  if (started) return;
+  started = true;
+  setInterval(() => {
+    refreshFeed().catch(() => {});
+    refreshGroups().then(renderThreads).catch(() => {});
+  }, 15000);
+  if (window.__TAURI__?.event?.listen) {
+    await window.__TAURI__.event.listen('chat-open', async (event) => {
+      const friend = event.payload?.friend;
+      await syncAccount();
+      await refreshFeed().catch(() => {});
+      if (friend) await openThread(dmKey(friend));
+    });
+  }
+  window.addEventListener('focus', () => {
+    void syncAccount();
+    void consumePendingChat();
+    refreshFeed().catch(() => {});
+    if (state.active) void loadMessages().then(renderMessages).catch(() => {});
+  });
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void consumePendingChat();
+  });
+}
+
 async function boot() {
   const social = await invokeTauri('get_social_state');
   if (!social) {
@@ -455,11 +483,14 @@ async function boot() {
   }
   state.profile = social.profile || {};
   state.account = social.account || null;
+  state.settings = await invokeTauri('get_settings').catch(() => null);
+  await startOnce();
   if (!state.account) {
     $('#emptyState').hidden = false;
     $('#emptyState').textContent = 'Sign in to your Esteria account in the launcher to chat.';
     return;
   }
+  $('#emptyState').hidden = true;
   $('#chatStatus').textContent = `Signed in as ${state.account.username}`;
   try {
     await refreshCapabilities();
@@ -470,33 +501,21 @@ async function boot() {
       state.preview[key] = friend.statusMessage || '';
     }));
     renderThreads();
-    setInterval(() => {
-      refreshFeed().catch(() => {});
-      refreshGroups().then(renderThreads).catch(() => {});
-    }, 15000);
   } catch (error) {
     $('#chatStatus').textContent = String(error);
   }
   await consumePendingChat();
-  if (window.__TAURI__?.event?.listen) {
-    await window.__TAURI__.event.listen('chat-open', async (event) => {
-      const friend = event.payload?.friend;
-      await refreshFeed().catch(() => {});
-      if (friend) await openThread(dmKey(friend));
-    });
-  }
-  window.addEventListener('focus', () => {
-    void consumePendingChat();
-    refreshFeed().catch(() => {});
-    if (state.active) void loadMessages().then(renderMessages).catch(() => {});
-  });
-  window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void consumePendingChat();
-  });
+}
+
+/** The popout is created at launcher start, so pick up sign-ins/outs that happen afterwards. */
+async function syncAccount() {
+  const social = await invokeTauri('get_social_state');
+  if ((social?.account?.token || '') !== (state.account?.token || '')) await boot();
 }
 
 $('#backButton').addEventListener('click', closeThread);
 $('#refreshButton').addEventListener('click', () => {
+  void syncAccount();
   refreshFeed().catch(() => {});
   refreshGroups().then(renderThreads).catch(() => {});
   if (state.active) loadMessages().then(renderMessages).catch(() => {});
