@@ -47,6 +47,7 @@ namespace
     std::vector<std::string> cancellations;
     std::filesystem::path directory;
     std::string origin;
+bool allowInsecureHttp = false;
     bool deviceLost = false;
     IDirect3DTexture9* blank = nullptr;
     using BindFn = HRESULT(WINAPI*)(IDirect3DDevice9*, DWORD, IDirect3DBaseTexture9*);
@@ -169,7 +170,7 @@ namespace
         constexpr wchar_t digits[] = L"0123456789abcdef";
         for (uint8_t value : random) { nonce += digits[value >> 4]; nonce += digits[value & 15]; }
         auto executable = directory / L"EsteriaChatHelper.exe";
-        std::wstring command = L"\"" + executable.wstring() + L"\" " + std::to_wstring(GetCurrentProcessId()) + L" " + nonce + L" " + std::wstring(origin.begin(), origin.end()) + L" 1";
+        std::wstring command = L"\"" + executable.wstring() + L"\" " + std::to_wstring(GetCurrentProcessId()) + L" " + nonce + L" " + std::wstring(origin.begin(), origin.end()) + (allowInsecureHttp ? L" 2" : L" 1");
         STARTUPINFOW startup{}; startup.cb = sizeof(startup); startup.dwFlags = STARTF_USESHOWWINDOW; startup.wShowWindow = SW_HIDE;
         PROCESS_INFORMATION process{};
         if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, directory.c_str(), &startup, &process)) { done = true; return; }
@@ -374,9 +375,11 @@ int __cdecl WXL_Load(WXL_Api const* value)
     directory = std::filesystem::path(path).parent_path();
     wchar_t configured[2048]{};
     GetPrivateProfileStringW(L"Chat", L"ApiOrigin", L"", configured, 2048, (directory / L"chat-media.ini").c_str());
+    allowInsecureHttp = GetPrivateProfileIntW(L"Chat", L"AllowInsecureHttp", 0, (directory / L"chat-media.ini").c_str()) == 1;
     std::wstring wide(configured);
     for (wchar_t c : wide) { if (c > 127) return 0; origin += static_cast<char>(c); }
-    if (!std::regex_match(origin, std::regex(R"((https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?|http://(127\.0\.0\.1|localhost)(:[0-9]{1,5})?/?))"))) return 0;
+    // shortcut: opt-in plain HTTP sends media tickets unencrypted, switch chat-media.ini to HTTPS once TLS exists.
+    if (!std::regex_match(origin, std::regex(allowInsecureHttp ? R"((https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?))" : R"((https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?|http://(127\.0\.0\.1|localhost)(:[0-9]{1,5})?/?))"))) return 0;
     if (!api->HookAttachByName("Lua.ValidateFunctionPointer", reinterpret_cast<void*>(Validate), reinterpret_cast<void**>(&originalValidate), 0) ||
         !api->HookAttachByName("Lua.RegisterFunction", reinterpret_cast<void*>(Register), reinterpret_cast<void**>(&originalRegister), 0)) return 0;
     api->Subscribe(static_cast<uint32_t>(wxl::events::Event::OnUpdate), Update, nullptr);

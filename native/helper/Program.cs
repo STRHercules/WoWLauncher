@@ -46,8 +46,8 @@ internal static partial class Program
     {
         if (args.Length != 4 || !int.TryParse(args[0], out GamePid) || GamePid < 1 ||
             !Regex.IsMatch(args[1], "^[A-Za-z0-9_-]{32}$") || !Uri.TryCreate(args[2], UriKind.Absolute, out Origin!) ||
-            (Origin.Scheme != "https" && !(Origin.Scheme == "http" && Origin.IsLoopback)) ||
-            Origin.AbsolutePath != "/" || !string.IsNullOrEmpty(Origin.UserInfo) || args[3] != "1") return;
+            (Origin.Scheme != "https" && !(Origin.Scheme == "http" && (Origin.IsLoopback || args[3] == "2"))) ||
+            Origin.AbsolutePath != "/" || !string.IsNullOrEmpty(Origin.UserInfo) || args[3] is not ("1" or "2")) return;
         try
         {
             var game = Process.GetProcessById(GamePid);
