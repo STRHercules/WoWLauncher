@@ -1,0 +1,8 @@
+{
+  "include": ["Wow.exe", "Data/*.mpq"],
+  "exclude": ["*.pdb", "*.bak", "Logs", "Screenshots", "WDB", "WTF", ".launcher"],
+  "folders": [
+    { "path": "Data/Patch-Housing.MPQ", "delivery": "zip" },
+    { "path": "Extensions", "delivery": "files" }
+  ]
+}

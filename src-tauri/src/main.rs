@@ -1310,6 +1310,33 @@ fn extract_zip_safely(zip_path: &Path, destination: &Path) -> Result<(), String>
     Ok(())
 }
 
+fn preserve_unmanaged_bundle_files(current: &Path, staged: &Path) -> Result<(), String> {
+    let metadata = match fs::symlink_metadata(current) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Could not inspect {}: {error}", current.display())),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(format!("Cannot safely preserve a link in a bundle folder: {}", current.display()));
+    }
+    if metadata.is_dir() {
+        fs::create_dir_all(staged)
+            .map_err(|error| format!("Could not preserve folder {}: {error}", current.display()))?;
+        for entry in fs::read_dir(current)
+            .map_err(|error| format!("Could not read {}: {error}", current.display()))?
+        {
+            let entry = entry.map_err(|error| format!("Could not read bundle folder: {error}"))?;
+            preserve_unmanaged_bundle_files(&entry.path(), &staged.join(entry.file_name()))?;
+        }
+    } else if !staged.exists() {
+        fs::copy(current, staged)
+            .map_err(|error| format!("Could not preserve {}: {error}", current.display()))?;
+    } else if !staged.is_file() {
+        return Err(format!("Bundle folder conflicts with an existing file: {}", current.display()));
+    }
+    Ok(())
+}
+
 async fn install_patch_bundle(
     app: &tauri::AppHandle,
     root: &Path,
@@ -1425,6 +1452,14 @@ async fn install_patch_bundle(
     }
 
     let target_dir = root.join(&target_relative);
+    // Excluded files and player additions stay outside the bundle's managed selection.
+    let current_for_preserve = target_dir.clone();
+    let staged_for_preserve = extracted_root.clone();
+    tokio::task::spawn_blocking(move || {
+        preserve_unmanaged_bundle_files(&current_for_preserve, &staged_for_preserve)
+    })
+    .await
+    .map_err(|error| format!("Bundle preservation task failed: {error}"))??;
     if let Some(parent) = target_dir.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -2896,6 +2931,31 @@ mod tests {
         assert!(validate_relative_path("../Wow.exe").is_err());
         assert!(validate_relative_path("Data/../../Windows/system.ini").is_err());
         assert!(validate_relative_path("C:\\Windows\\system.ini").is_err());
+    }
+
+    #[test]
+    fn bundle_update_preserves_excluded_files_and_keeps_verified_replacements() {
+        let temp = tempdir().expect("tempdir");
+        let current = temp.path().join("current");
+        let staged = temp.path().join("staged");
+        fs::create_dir_all(current.join("nested")).unwrap();
+        fs::create_dir_all(&staged).unwrap();
+        fs::write(current.join("managed.txt"), b"old").unwrap();
+        fs::write(current.join("local.ini"), b"player settings").unwrap();
+        fs::write(current.join("nested/custom.txt"), b"player addition").unwrap();
+        fs::write(staged.join("managed.txt"), b"verified update").unwrap();
+
+        preserve_unmanaged_bundle_files(&current, &staged).unwrap();
+        assert_eq!(fs::read(staged.join("managed.txt")).unwrap(), b"verified update");
+        assert_eq!(fs::read(staged.join("local.ini")).unwrap(), b"player settings");
+        assert_eq!(fs::read(staged.join("nested/custom.txt")).unwrap(), b"player addition");
+        assert_eq!(fs::read(current.join("managed.txt")).unwrap(), b"old");
+
+        fs::create_dir_all(staged.join("conflict")).unwrap();
+        fs::write(current.join("conflict"), b"must not lose this").unwrap();
+        assert!(preserve_unmanaged_bundle_files(&current, &staged).is_err());
+        assert_eq!(fs::read(current.join("conflict")).unwrap(), b"must not lose this");
+        assert!(preserve_unmanaged_bundle_files(&temp.path().join("missing"), &staged).is_ok());
     }
 
     #[test]

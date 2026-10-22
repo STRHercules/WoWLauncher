@@ -200,7 +200,57 @@ $env:SOCIAL_DATA_DIR = 'G:\EsteriaCDN\social'
 npm run dev
 ```
 
-The server builds `manifest-v2.json` using SHA-256. It excludes player-generated state such as Logs, Screenshots, WDB, account WTF data, and `.launcher` state.
+The external server builds `manifest-v2.json` using SHA-256. It excludes player-generated state such as Logs, Screenshots, WDB, account WTF data, and `.launcher` state. The developer-controlled staging workflow below is included in this repository and can be served by any static CDN.
+
+### Developer-controlled file and folder delivery
+
+Copy `delivery.example.json` to `.delivery.json` in your **source client** and edit it for your server:
+
+```json
+{
+  "include": ["Wow.exe", "Data/*.mpq"],
+  "exclude": ["*.pdb", "*.bak", "Logs", "Screenshots", "WDB", "WTF", ".launcher"],
+  "folders": [
+    { "path": "Data/Patch-Housing.MPQ", "delivery": "zip" },
+    { "path": "Extensions", "delivery": "files" }
+  ]
+}
+```
+
+- `include` selects individual files, folders (including their contents), or wildcard patterns. Nothing is selected implicitly when a policy is present.
+- `folders` also selects each listed folder and its contents. `files` delivers them individually; `zip` creates one compressed download that the launcher verifies and extracts automatically.
+- `exclude` always wins, including inside ZIP folders. Paths are relative to the source client, case-insensitive, and accept `/` or `\`. Patterns use PowerShell wildcards (`*`, `?`, `[abc]`); `*` can cross directory separators, so `Data/*.mpq` also matches MPQs in subdirectories. This is not gitignore syntax.
+- Folder entries must exist and must not overlap. ZIP folders must contain at least one selected file. Unknown options, unsafe paths, selected `.launcher` state, and links/junctions in the source tree fail the build.
+- The policy, generated manifests, and partial launcher downloads are excluded from payloads. Keep credentials and other private files outside the source tree or explicitly excluded; this policy defines what is public.
+
+Build a release with **PowerShell 7.2 or newer**:
+
+```powershell
+pwsh -File .\tools\New-EsteriaManifest.ps1 `
+  -PayloadRoot 'D:\ServerClient' `
+  -PublishRoot 'D:\CDN-Releases\2026.10.22.1' `
+  -OutputPath 'D:\CDN-Releases\2026.10.22.1\manifest.json' `
+  -Version '2026.10.22.1' `
+  -BaseUrl 'https://cdn.example.com/client/releases/2026.10.22.1/'
+```
+
+The script automatically reads `<PayloadRoot>\.delivery.json`. Use `-DeliveryConfig <path>` to keep the policy elsewhere. `PublishRoot` must be a new or empty directory outside the source tree, and `OutputPath` must be directly inside it. The build leaves the source untouched and stages only selected loose files, SHA-256-named ZIPs under `.bundles`, and the manifest. Expanded ZIP members remain in the manifest for per-file verification but are not also uploaded as loose files. The archive is verified again against those file hashes before the manifest is written.
+
+Upload the **contents of PublishRoot** to the matching versioned CDN directory, including `.bundles` (some upload tools skip dot-prefixed directories). Serve this generated manifest directly. Point the launcher's Client manifest setting, or its `ESTERIA_DEFAULT_MANIFEST` build default, at that static manifest or at a stable URL that serves the latest generated manifest. Upload payloads first and switch the stable manifest last; retain previous release directories while players may still be downloading them. Use a short cache lifetime or revalidation for the stable manifest URL.
+
+Running this tool does not update the external `/api/v2/client/<channel>/manifest.json` endpoint described above. To use that endpoint with these releases, configure the server to serve the generated JSON unchanged; otherwise configure the launcher with the static manifest URL. Once the generated manifest is wired up, developers can change file selections or delivery modes without rebuilding the launcher.
+
+For a local test, omit `BaseUrl` and select the generated manifest on disk in launcher settings. With no policy and no `PublishRoot`, the script retains its original manifest-only workflow for existing packaging callers.
+
+Changing `zip` to `files`, or changing selections, takes effect on the next release. A missing or corrupt member of a ZIP folder triggers a download of that entire ZIP. Use ZIPs for many small files; use individual delivery for large files that change independently. Bundle updates preserve excluded files and player additions already inside the folder; removing a file from the policy stops managing it and does not delete existing player copies. Preservation needs additional working disk space for those local files.
+
+Run the delivery tooling self-test with:
+
+```powershell
+pwsh -File .\tools\Test-EsteriaDelivery.ps1
+```
+
+### Legacy server bundle configuration
 
 For large extracted directories, the server automatically recognizes the two bundle pairs already used by the old launcher when both the expanded directory and ZIP exist:
 
@@ -220,7 +270,7 @@ You can override or extend that list with `G:\EsteriaCDN\client\live\.delivery-b
 ]
 ```
 
-The expanded directory remains authoritative for per-file SHA-256 verification. The ZIP is only the transport bundle and is not installed into the player's client.
+The expanded directory remains authoritative for per-file SHA-256 verification in that external server workflow. The ZIP is only the transport bundle and is not installed into the player's client. `.delivery-bundles.json` configures pre-existing archives for that server; `.delivery.json` configures the staging tool above, which builds the archives itself.
 
 For public distribution, put the Node service behind HTTPS with Caddy, IIS, nginx, or another reverse proxy. Do not expose account data or a player's live profile as the CDN source tree.
 
