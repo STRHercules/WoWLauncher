@@ -1,6 +1,6 @@
 # Esteria Launcher
 
-![Launcher](assets\pics\Previews\launcher.png)
+![Launcher](https://raw.githubusercontent.com/STRHercules/WoWLauncher/refs/heads/main/assets/pics/Previews/launcher.png)
 
 Battle.net-inspired desktop launcher for Esteria, built with Tauri 2, Rust, HTML, CSS, and JavaScript.
 
