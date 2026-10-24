@@ -1,5 +1,7 @@
 # Esteria Launcher
 
+![Launcher](assets\pics\Previews\launcher.png)
+
 Battle.net-inspired desktop launcher for Esteria, built with Tauri 2, Rust, HTML, CSS, and JavaScript.
 
 ## Current feature set
