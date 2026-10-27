@@ -10,6 +10,10 @@ const DEFAULT_SETTINGS = {
   statusSource: 'http://planetkai.hopto.org:7384/api/v2/status',
   socialSource: 'http://planetkai.hopto.org:7384/api/v2/social.json',
   accountApi: 'http://planetkai.hopto.org:7384',
+  gameApi: 'http://planetkai.hopto.org:8095',
+  clientSource: '',
+  discordPresence: true,
+  discordClientId: '',
   armorySource: 'http://planetkai.hopto.org:7384/api/v2/armory/characters.json',
   databaseSource: 'http://planetkai.hopto.org:7384/api/v2/database/index.json',
   autoUpdateAddons: true,
@@ -101,6 +105,14 @@ function formatBytes(value) {
   return `${current >= 100 ? current.toFixed(0) : current.toFixed(1)} ${units[index]}`;
 }
 
+// Connection failures from the web service read as one short sentence instead of the raw request error.
+function serviceError(error) {
+  const text = String(error);
+  return /error sending request|timed out|connection/i.test(text)
+    ? 'the Esteria web service is not responding. It may be offline; try again later.'
+    : text;
+}
+
 function formatEta(seconds) {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value <= 0) return '';
@@ -119,12 +131,18 @@ function setLauncherView(view = 'home') {
   $('#armorySection').hidden = view !== 'armory';
   $('#databaseSection').hidden = view !== 'database';
   $('#toolsSection').hidden = view !== 'tools';
+  $('#accountSection').hidden = view !== 'account';
+  $('#statsSection').hidden = view !== 'stats';
+  $('#linksSection').hidden = view !== 'links';
+  $('#patchNotesSection').hidden = view !== 'patchnotes';
+  $('#storySection').hidden = view !== 'story';
+  $('#imagesSection').hidden = view !== 'images';
   $('#communitySection').hidden = view !== 'community';
   const showHome = view === 'home';
   $('#hero').hidden = !showHome;
   $('#newsSection').hidden = !showHome;
   $('.feed-section').hidden = !showHome;
-  gameTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === view || (view === 'addons' && tab.dataset.view === 'home')));
+  gameTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === view || (['addons', 'links', 'patchnotes', 'story'].includes(view) && tab.dataset.view === 'home')));
   $('#mainContent').scrollTop = 0;
 }
 
@@ -141,6 +159,9 @@ gameTabs.forEach((tab) => {
     if (view === 'armory') await refreshArmory();
     if (view === 'database') await refreshDatabase();
     if (view === 'tools') await refreshDiagnostics();
+    if (view === 'account') await refreshGameAccount();
+    if (view === 'stats') await refreshStats();
+    if (view === 'images') await refreshImages();
   });
 });
 
@@ -160,7 +181,7 @@ navButtons.forEach((button) => {
   });
 });
 
-const slides = [
+let slides = [
   {
     className: 'hero-art-one',
     kicker: 'World Update',
@@ -187,24 +208,44 @@ const heroDots = $('#heroDots');
 function renderHero() {
   const slide = slides[currentSlide];
   heroArt.className = `hero-art ${slide.className}`;
+  $('#heroAction').textContent = slide.item?.body || slide.item?.url ? 'Read story' : 'Patch notes';
   $('#heroKicker').textContent = slide.kicker;
   $('#heroTitle').textContent = slide.title;
   $('#heroBody').textContent = slide.body;
   $$('.hero-dot').forEach((dot, index) => dot.classList.toggle('is-active', index === currentSlide));
 }
 
-slides.forEach((_, index) => {
-  const dot = document.createElement('button');
-  dot.type = 'button';
-  dot.className = 'hero-dot';
-  dot.setAttribute('aria-label', `Show story ${index + 1}`);
-  dot.addEventListener('click', () => {
-    currentSlide = index;
-    renderHero();
+function buildHeroDots() {
+  heroDots.replaceChildren();
+  slides.forEach((_, index) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'hero-dot';
+    dot.setAttribute('aria-label', `Show story ${index + 1}`);
+    dot.addEventListener('click', () => {
+      currentSlide = index;
+      renderHero();
+    });
+    heroDots.appendChild(dot);
   });
-  heroDots.appendChild(dot);
-});
+}
+buildHeroDots();
 renderHero();
+
+// The marquee shows the newest stories from the CDN feed; the built-in slides are only a fallback.
+function setHeroFromNews(items) {
+  const arts = ['hero-art-one', 'hero-art-two', 'hero-art-three'];
+  slides = items.slice(0, 3).map((item, index) => ({
+    className: arts[index % arts.length],
+    kicker: item.category || 'News',
+    title: item.title || 'Esteria update',
+    body: item.summary || '',
+    item
+  }));
+  currentSlide = 0;
+  buildHeroDots();
+  renderHero();
+}
 
 $('#heroPrev').addEventListener('click', () => {
   currentSlide = (currentSlide - 1 + slides.length) % slides.length;
@@ -215,8 +256,9 @@ $('#heroNext').addEventListener('click', () => {
   renderHero();
 });
 $('#heroAction').addEventListener('click', () => {
-  if (appState.featuredNewsUrl) openExternal(appState.featuredNewsUrl);
-  else showToast('No link is published for this story yet.');
+  const item = slides[currentSlide]?.item;
+  if (item) openStory(item);
+  else openPatchNotes();
 });
 
 const fallbackNewsImages = [
@@ -230,8 +272,9 @@ function renderNews(items) {
   const grid = $('#newsGrid');
   grid.replaceChildren();
   appState.featuredNewsUrl = items[0]?.url || '';
+  setHeroFromNews(items);
 
-  items.slice(0, 6).forEach((item, index) => {
+  items.slice(0, 24).forEach((item, index) => {
     const card = document.createElement('article');
     card.className = 'news-card';
     card.tabIndex = 0;
@@ -254,16 +297,14 @@ function renderNews(items) {
     body.append(meta, title, summary);
     card.append(image, body);
 
-    if (item.url) {
-      card.classList.add('is-clickable');
-      card.addEventListener('click', () => openExternal(item.url));
-      card.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          openExternal(item.url);
-        }
-      });
-    }
+    card.classList.add('is-clickable');
+    card.addEventListener('click', () => openStory(item));
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openStory(item);
+      }
+    });
     grid.append(card);
   });
 }
@@ -277,6 +318,7 @@ async function refreshNews() {
   } catch (error) {
     console.warn('Could not load launcher news', error);
   }
+  await refreshDevFeed();
 }
 
 function normalizePresence(value) {
@@ -454,7 +496,7 @@ async function refreshAccountFeed({ publish = true } = {}) {
       body: publish
         ? {
             presence: normalizePresence(profile.presence || 'online'),
-            statusMessage: profile.statusMessage || '',
+            statusMessage: (appState.gamePresence ? gameStatusText(appState.gamePresence) : '') || profile.statusMessage || '',
             displayName: profile.displayName || ''
           }
         : {}
@@ -537,6 +579,7 @@ function renderSocialPanel() {
   applyAvatar($('#profileAvatar'), myAvatar, displayName.slice(0, 2).toUpperCase() || 'P');
   $('#profilePresenceText').textContent = presenceLabel(profile.presence);
   $('#profileStatusMessage').textContent =
+    (appState.gamePresence ? gameStatusText(appState.gamePresence) : '') ||
     profile.statusMessage ||
     (profile.favoriteCharacter ? `Favorite: ${profile.favoriteCharacter}` : session ? `Signed in as @${session.username}` : '');
   const profileDot = $('#profilePresenceDot');
@@ -748,6 +791,11 @@ function renderAccountPanel() {
   $('#accountSignedIn').hidden = !signedIn;
   const name = signedIn ? me?.displayName || session.displayName || session.username : 'Not signed in';
   $('#accountName').textContent = signedIn ? `${name} · @${session.username}` : 'Not signed in';
+  const linkedGame = signedIn ? me?.gameAccount : null;
+  $('#accountGameLink').textContent = !signedIn ? '' : linkedGame
+    ? `Linked to game account ${linkedGame} · permanent`
+    : 'Not linked to a game account yet. Sign in on the Game Account tab to link it.';
+  $('#accountGameLink').classList.toggle('is-linked', Boolean(linkedGame));
   $('#accountHint').textContent = signedIn
     ? 'Presence, friends, chats, and your profile picture live on the Esteria account service.'
     : 'Create an Esteria account to share your presence, friends, and chat with other players.';
@@ -762,8 +810,15 @@ async function signInAccount({ register = false } = {}) {
     showToast('Enter your account name and password.');
     return;
   }
+  const email = $('#accountEmailInput').value.trim();
+  if (register && appState.settings.gameApi && !email) {
+    showToast('Enter an email address to create your account.');
+    return;
+  }
   appState.accountBusy = true;
   try {
+    // Same name and password for the game; the game account is created first so a taken name fails early.
+    if (register && appState.settings.gameApi) await gameRegister(username, password, email);
     const payload = await accountRequest(register ? '/api/v2/account/register' : '/api/v2/account/login', {
       method: 'POST',
       body: register
@@ -788,8 +843,13 @@ async function signInAccount({ register = false } = {}) {
         favoriteCharacter: previous.favoriteCharacter || ''
       }
     });
+    if (appState.settings.gameApi) {
+      await gameLogin(username, password).catch((error) => showToast(`Signed in, but the game account could not be linked: ${error}`, 6000));
+    }
     $('#accountPasswordInput').value = '';
+    await refreshGamePresence();
     await refreshAccountFeed();
+    await autoLinkGameProfile();
     renderAccountPanel();
     renderSocialPanel();
     showToast(register ? `Esteria account ${account.username} created.` : `Signed in as ${account.username}.`);
@@ -800,6 +860,7 @@ async function signInAccount({ register = false } = {}) {
 }
 
 async function signOutAccount() {
+  await gameSignOut();
   try {
     await accountRequest('/api/v2/account/logout', { method: 'POST', body: {} });
   } catch (error) {
@@ -1281,7 +1342,6 @@ async function startGame(action) {
   try {
     if (action === 'minimize' || action === 'tray') await invokeTauri('apply_play_action', { action });
     const result = await invokeTauri('launch_game', { settings: appState.settings });
-    if (action === 'minimize' || action === 'tray') await invokeTauri('show_main_window');
     showToast(result === null ? 'Desktop launch hook is ready.' : 'Esteria has closed.');
   } catch (error) {
     showToast(String(error), 5200);
@@ -1697,6 +1757,9 @@ function populateSettingsForm() {
   statusSourceInput.value = appState.settings.statusSource || '';
   socialSourceInput.value = appState.settings.socialSource || '';
   accountApiInput.value = appState.settings.accountApi || DEFAULT_SETTINGS.accountApi;
+  $('#gameApiInput').value = appState.settings.gameApi || '';
+  $('#clientSourceInput').value = appState.settings.clientSource || '';
+  $('#discordPresenceInput').checked = appState.settings.discordPresence !== false;
   armorySourceInput.value = appState.settings.armorySource || '';
   databaseSourceInput.value = appState.settings.databaseSource || '';
   patchListInput.value = appState.settings.patchList || '';
@@ -1861,6 +1924,10 @@ $('#saveSettingsButton').addEventListener('click', async () => {
     statusSource: statusSourceInput.value.trim(),
     socialSource: socialSourceInput.value.trim(),
     accountApi: accountApiInput.value.trim() || DEFAULT_SETTINGS.accountApi,
+    gameApi: $('#gameApiInput').value.trim(),
+    clientSource: $('#clientSourceInput').value.trim(),
+    discordPresence: $('#discordPresenceInput').checked,
+    discordClientId: appState.settings.discordClientId || '',
     armorySource: armorySourceInput.value.trim(),
     databaseSource: databaseSourceInput.value.trim(),
     autoUpdateAddons: autoUpdateAddonsInput.checked,
@@ -2011,18 +2078,32 @@ async function autoUpdateManagedAddons({ silent = false } = {}) {
 
 async function repairInstallation() {
   if (appState.updateRunning) return;
-  if (!appState.settings.manifestSource) {
-    showToast('Configure a client manifest before installing or repairing Esteria.');
+  if (!appState.settings.manifestSource && !appState.settings.clientSource) {
+    showToast('Configure a client manifest or download link before installing or repairing Esteria.');
     openSettings();
     return;
   }
 
   appState.updateRunning = true;
+  appState.downloadPaused = false;
+  syncPauseButton();
   updatePlayState();
   $('#checkUpdatesButton').disabled = true;
   setUpdateStatus(appState.clientInstalled ? 'Preparing update…' : 'Preparing install…', 0);
 
   try {
+    const source = await installFromClientSource();
+    if (source === 'external') {
+      setUpdateStatus('Waiting for your torrent client');
+      return;
+    }
+    if (!appState.settings.manifestSource) {
+      appState.clientInstalled = true;
+      appState.needsRepair = false;
+      setUpdateStatus('Client downloaded');
+      showToast('Client downloaded.', 4200);
+      return;
+    }
     const result = await invokeTauri('repair_installation', { settings: appState.settings });
     if (!result) {
       showToast('Desktop updater unavailable.');
@@ -2035,10 +2116,16 @@ async function repairInstallation() {
     await autoUpdateManagedAddons({ silent: true });
     showToast(`${appState.clientInstalled ? 'Client ready.' : 'Update complete.'} Downloaded ${result.repairedFiles} file${result.repairedFiles === 1 ? '' : 's'}.`, 4200);
   } catch (error) {
-    setUpdateStatus('Update failed');
-    showToast(String(error), 6500);
+    if (String(error).includes('Download paused')) {
+      appState.downloadPaused = true;
+      setUpdateStatus('Paused · press Resume to continue');
+    } else {
+      setUpdateStatus('Update failed');
+      showToast(String(error), 6500);
+    }
   } finally {
     appState.updateRunning = false;
+    syncPauseButton();
     $('#checkUpdatesButton').disabled = false;
     updatePlayState();
   }
@@ -2412,7 +2499,7 @@ async function refreshArmory() {
   } catch (error) {
     appState.armory = [];
     renderArmory();
-    showToast(`Armory unavailable: ${String(error)}`, 5200);
+    showToast(`Armory unavailable: ${serviceError(error)}`, 5200);
   }
 }
 
@@ -2525,7 +2612,7 @@ async function refreshDatabase() {
   } catch (error) {
     appState.database = [];
     renderDatabase();
-    showToast(`World Database unavailable: ${String(error)}`, 5200);
+    showToast(`World Database unavailable: ${serviceError(error)}`, 5200);
   }
 }
 
@@ -2689,6 +2776,7 @@ async function initializeDesktopState() {
       }).catch((error) => console.warn('Could not listen for chat focus changes', error));
     }
     setInterval(async () => {
+      await refreshGamePresence();
       if (!accountSession()) return;
       const previousByFriend = appState.unreadByFriend || {};
       await refreshAccountFeed();

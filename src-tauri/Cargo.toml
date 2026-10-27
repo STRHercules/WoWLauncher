@@ -1,6 +1,6 @@
 [package]
 name = "esteria-launcher"
-version = "0.5.1"
+version = "0.7.9"
 description = "Desktop launcher for Esteria"
 authors = ["Esteria"]
 edition = "2021"
@@ -24,6 +24,9 @@ url = "2"
 fs2 = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = "2.12.0"
+image-blp = "1.2.0"
+wow-mpq = "0.7.0"
+image = { version = "0.24", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 tempfile = "3"

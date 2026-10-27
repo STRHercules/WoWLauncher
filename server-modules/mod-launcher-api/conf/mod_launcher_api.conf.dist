@@ -1,0 +1,63 @@
+[worldserver]
+
+#
+#    LauncherApi.Enable
+#        Description: Serve the launcher HTTP API (account creation, character management, presence).
+#        Default:     0 - Disabled
+#
+LauncherApi.Enable = 0
+
+#
+#    LauncherApi.Bind / LauncherApi.Port
+#        Description: Address and TCP port the API listens on. Players' launchers must reach it.
+#                     Keep 127.0.0.1 if a reverse proxy (Caddy, nginx) terminates TLS in front of it.
+#
+LauncherApi.Bind = "127.0.0.1"
+LauncherApi.Port = 8095
+
+#
+#    LauncherApi.Tls.Cert / LauncherApi.Tls.Key
+#        Description: PEM certificate chain and private key. Leave empty for plain HTTP.
+#                     Account names and passwords travel in request bodies - use TLS on any public address.
+#
+LauncherApi.Tls.Cert = ""
+LauncherApi.Tls.Key = ""
+
+#
+#    LauncherApi.AllowRegistration
+#        Description: Let launchers create game accounts (name, password, email).
+#        Default:     1
+#
+LauncherApi.AllowRegistration = 1
+
+#
+#    LauncherApi.TokenHours
+#        Description: How long a launcher login stays valid.
+#        Default:     168 (7 days)
+#
+LauncherApi.TokenHours = 168
+
+#
+#    LauncherApi.Character.Delete
+#        Description: Allow soft-delete and restore of characters from the launcher.
+#        Default:     1
+#
+LauncherApi.Character.Delete = 1
+
+#
+#    LauncherApi.Service.Rename / Customize / Faction / Race
+#        Description: Allow the character service. It sets the normal at_login flag, so the player
+#                     completes it at the character screen. Services are free; the character must be offline.
+#        Default:     1
+#
+LauncherApi.Service.Rename = 1
+LauncherApi.Service.Customize = 1
+LauncherApi.Service.Faction = 1
+LauncherApi.Service.Race = 1
+
+#
+#    LauncherApi.Armory.IncludeBots
+#        Description: Show playerbot (RNDBOT*) characters in the public armory.
+#        Default:     0
+#
+LauncherApi.Armory.IncludeBots = 0

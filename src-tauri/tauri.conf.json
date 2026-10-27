@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Esteria Launcher",
-  "version": "0.5.1",
+  "version": "0.7.9",
   "identifier": "gg.esteria.launcher",
   "build": {
     "frontendDist": "../ui"
@@ -48,7 +48,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5NzczRjk4NzAwNjU3MzMKUldRelZ3WndtRDkzMlhjUW9uck5lbTl5d2cvUm9yQ1BlczFYb2VFWEhxdU5sNWExZmIwU3hQQ28K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENDN0ExNjA2NjAzMTQ0NjcKUldSblJERmdCaFo2ekJwU3VOcWhoUzhRT29BSGhhWWhubXp1UmZMQlp3REVwS05DRGRRcTRaVmcK",
       "endpoints": [
         "http://planetkai.hopto.org:7384/launcher-updates/latest.json"
       ],

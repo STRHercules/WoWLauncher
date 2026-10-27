@@ -23,18 +23,25 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use url::Url;
 
+mod extras;
+
 const SETTINGS_DIR: &str = "EsteriaLauncher";
 const SETTINGS_FILE: &str = "settings.json";
 const HASH_CACHE_FILE: &str = "hash-cache.json";
 const SOCIAL_STATE_FILE: &str = "social-state.json";
 const DEFAULT_MANIFEST_URL: &str = "http://planetkai.hopto.org:7384/api/v2/client/live/manifest.json";
 const DEFAULT_ADDON_CATALOG_URL: &str = "http://planetkai.hopto.org:7384/api/v2/addons/catalog.json";
+const DEFAULT_PATCH_NOTES_URL: &str = "http://planetkai.hopto.org:7384/api/v2/patchnotes.md";
 const DEFAULT_NEWS_URL: &str = "http://planetkai.hopto.org:7384/api/v2/news.json";
 const DEFAULT_STATUS_URL: &str = "http://planetkai.hopto.org:7384/api/v2/status";
 const DEFAULT_SOCIAL_URL: &str = "http://planetkai.hopto.org:7384/api/v2/social.json";
-const DEFAULT_ARMORY_URL: &str = "http://planetkai.hopto.org:7384/api/v2/armory/characters.json";
-const DEFAULT_DATABASE_URL: &str = "http://planetkai.hopto.org:7384/api/v2/database/index.json";
+const DEFAULT_ARMORY_URL: &str = "http://planetkai.hopto.org:8095/launcher/v1/armory";
+const DEFAULT_DATABASE_URL: &str = "http://planetkai.hopto.org:8095/launcher/v1/database";
+/// Snapshot endpoints the launcher used before the armory and database were served live by the game server.
+const LEGACY_ARMORY_URL: &str = "http://planetkai.hopto.org:7384/api/v2/armory/characters.json";
+const LEGACY_DATABASE_URL: &str = "http://planetkai.hopto.org:7384/api/v2/database/index.json";
 const DEFAULT_ACCOUNT_API: &str = "http://planetkai.hopto.org:7384";
+const DEFAULT_GAME_API: &str = "http://planetkai.hopto.org:8095";
 const DEFAULT_REALM_HOST: &str = "planetkai.hopto.org";
 const DEFAULT_REALM_PORT: u16 = 3724;
 const DOWNLOAD_STALL_SECS: u64 = 60;
@@ -56,12 +63,24 @@ struct LauncherSettings {
     addon_catalog_source: String,
     #[serde(default = "default_news_source")]
     news_source: String,
+    #[serde(default = "default_patch_notes_source")]
+    patch_notes_source: String,
     #[serde(default = "default_status_source")]
     status_source: String,
     #[serde(default = "default_social_source")]
     social_source: String,
     #[serde(default = "default_account_api")]
     account_api: String,
+    /// Base address of the mod-launcher-api game server module (account, characters, presence).
+    #[serde(default = "default_game_api")]
+    game_api: String,
+    /// Optional server-supplied client download: direct .zip link or magnet link. The CDN manifest stays the default.
+    #[serde(default)]
+    client_source: String,
+    #[serde(default = "default_true")]
+    discord_presence: bool,
+    #[serde(default = "default_discord_client_id")]
+    discord_client_id: String,
     #[serde(default = "default_armory_source")]
     armory_source: String,
     #[serde(default = "default_database_source")]
@@ -89,15 +108,20 @@ struct LauncherSettings {
 impl Default for LauncherSettings {
     fn default() -> Self {
         Self {
-            settings_version: 6,
+            settings_version: 7,
             game_path: String::new(),
             channel: default_channel(),
             manifest_source: default_manifest_source(),
             addon_catalog_source: default_addon_catalog_source(),
             news_source: default_news_source(),
+            patch_notes_source: default_patch_notes_source(),
             status_source: default_status_source(),
             social_source: default_social_source(),
             account_api: default_account_api(),
+            game_api: default_game_api(),
+            client_source: String::new(),
+            discord_presence: true,
+            discord_client_id: default_discord_client_id(),
             armory_source: default_armory_source(),
             database_source: default_database_source(),
             auto_update_addons: true,
@@ -149,6 +173,12 @@ fn default_addon_catalog_source() -> String {
         .to_string()
 }
 
+fn default_patch_notes_source() -> String {
+    option_env!("ESTERIA_DEFAULT_PATCH_NOTES")
+        .unwrap_or(DEFAULT_PATCH_NOTES_URL)
+        .to_string()
+}
+
 fn default_news_source() -> String {
     option_env!("ESTERIA_DEFAULT_NEWS")
         .unwrap_or(DEFAULT_NEWS_URL)
@@ -171,6 +201,16 @@ fn default_account_api() -> String {
     option_env!("ESTERIA_DEFAULT_ACCOUNT_API")
         .unwrap_or(DEFAULT_ACCOUNT_API)
         .to_string()
+}
+
+fn default_game_api() -> String {
+    option_env!("ESTERIA_DEFAULT_GAME_API")
+        .unwrap_or(DEFAULT_GAME_API)
+        .to_string()
+}
+
+fn default_discord_client_id() -> String {
+    option_env!("ESTERIA_DEFAULT_DISCORD_CLIENT").unwrap_or("").to_string()
 }
 
 fn default_armory_source() -> String {
@@ -624,6 +664,16 @@ fn load_settings_from_disk() -> LauncherSettings {
             settings.account_api = default_account_api();
         }
         settings.settings_version = 6;
+        let _ = save_settings_to_disk(&settings);
+    }
+    if settings.settings_version < 7 {
+        if settings.armory_source == LEGACY_ARMORY_URL {
+            settings.armory_source = default_armory_source();
+        }
+        if settings.database_source == LEGACY_DATABASE_URL {
+            settings.database_source = default_database_source();
+        }
+        settings.settings_version = 7;
         let _ = save_settings_to_disk(&settings);
     }
     settings
@@ -1159,6 +1209,10 @@ where
             {
                 let bytes = next_chunk
                     .map_err(|error| format!("Download interrupted for {url}: {error}"))?;
+                if extras::PAUSED.load(Ordering::Relaxed) {
+                    let _ = output.flush().await;
+                    return Err(extras::PAUSED_MESSAGE.to_string());
+                }
                 output
                     .write_all(&bytes)
                     .await
@@ -1693,7 +1747,7 @@ fn get_settings() -> LauncherSettings {
 
 #[tauri::command]
 fn save_settings(mut settings: LauncherSettings) -> Result<LauncherSettings, String> {
-    settings.settings_version = 6;
+    settings.settings_version = 7;
     settings.channel = settings.channel.trim().to_ascii_lowercase();
     if settings.channel != "live" && settings.channel != "ptr" {
         return Err("Game channel must be either live or ptr.".to_string());
@@ -1752,16 +1806,19 @@ fn launch_game(app: tauri::AppHandle, settings: LauncherSettings) -> Result<(), 
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.minimize();
         }
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            let _ = child.wait();
-            if let Some(window) = app_clone.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        });
     }
+    // The UI hides/minimizes the launcher before launching; bring it back once the game exits.
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        if let Some(window) = app_clone.get_webview_window("main") {
+            let hidden = !window.is_visible().unwrap_or(true);
+            let minimized = window.is_minimized().unwrap_or(false);
+            if hidden || minimized {
+                reveal_main_window(&app_clone);
+            }
+        }
+    });
 
     Ok(())
 }
@@ -1985,6 +2042,7 @@ async fn repair_installation(
     app: tauri::AppHandle,
     settings: LauncherSettings,
 ) -> Result<RepairResult, String> {
+    extras::PAUSED.store(false, Ordering::SeqCst);
     let root = game_root_from_settings(&settings, true)?;
     let (manifest, origin) = load_manifest(&settings.manifest_source).await?;
     let total = manifest.files.len();
@@ -2338,6 +2396,15 @@ async fn fetch_news(settings: LauncherSettings) -> Result<serde_json::Value, Str
         return Ok(serde_json::json!({ "schemaVersion": 1, "items": [] }));
     }
     load_json_source(&settings.news_source).await
+}
+
+/// Patch notes are a Markdown file on the CDN that the server admin edits by hand.
+#[tauri::command]
+async fn fetch_patch_notes(settings: LauncherSettings) -> Result<String, String> {
+    if settings.patch_notes_source.trim().is_empty() {
+        return Ok(String::new());
+    }
+    Ok(load_text_source(&settings.patch_notes_source).await?.0)
 }
 
 #[tauri::command]
@@ -2878,6 +2945,16 @@ fn main() {
             launch_game,
             verify_installation,
             repair_installation,
+            extras::pause_download,
+            extras::install_from_source,
+            extras::open_torrent_link,
+            extras::list_screenshots,
+            extras::read_screenshot,
+            extras::load_screenshot_meta,
+            extras::save_screenshot_meta,
+            extras::rename_screenshot,
+            extras::set_discord_presence,
+            extras::character_portraits,
             list_addons,
             install_addon,
             install_required_addons,
@@ -2911,6 +2988,7 @@ fn main() {
             clear_launcher_cache,
             launcher_diagnostics,
             open_external_url,
+            fetch_patch_notes,
             check_launcher_update,
             install_launcher_update,
             runtime_info

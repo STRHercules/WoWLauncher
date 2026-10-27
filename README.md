@@ -2,211 +2,461 @@
 
 ![Launcher](https://raw.githubusercontent.com/STRHercules/WoWLauncher/refs/heads/main/assets/pics/Previews/launcher.png)
 
-Battle.net-inspired desktop launcher for Esteria, built with Tauri 2, Rust, HTML, CSS, and JavaScript. 
+A Battle.net-style desktop launcher for **Esteria**, a custom World of Warcraft 3.3.5a server. It installs and repairs the game client, launches it, manages add-ons, and gives players a game account page, character stats, an armory, a world database, screenshots, news, patch notes and a friends/chat network, all in one window.
 
-## Current feature set
+Built with **Tauri 2** (Rust), plain HTML/CSS/JavaScript, and a small **AzerothCore module** that lets the launcher talk to the game server safely.
 
-### Client delivery and repair
+## Contents
 
-- Live/PTR channel selector persists per launcher install and switches channel-aware manifest URLs automatically
-- Installs a complete Esteria client into an empty folder from a CDN manifest
-- Existing `Wow.exe` installs are auto-detected and can be adopted
-- SHA-256 verification for every managed client file
-- Persistent hash cache so unchanged large MPQs do not need to be re-hashed every launch
-- Missing/corrupt file detection
-- Resumable HTTP downloads using `.esteria-download` partial files and HTTP Range requests
-- Download stall timeout
-- Byte progress, transfer speed, and ETA in the launcher UI
-- Disk-space preflight before a large install/update
-- Downloads are verified before replacing installed files
-- Large extracted directories can be delivered as verified ZIP bundles instead of thousands of individual HTTP requests
-- Bundle extraction uses staging + backup directories and verifies extracted files before the live directory is swapped
-- Up to four smaller files can download in parallel while large payloads and bundles remain sequential
-- Local manifests and local payloads remain supported for operator testing
+- [How the pieces fit together](#how-the-pieces-fit-together)
+- [For players: using the launcher](#for-players-using-the-launcher)
+- [For server admins: running it](#for-server-admins-running-it)
+  - [Game server module](#game-server-module)
+  - [CDN service](#cdn-service)
+  - [Publishing content](#publishing-content): patch notes, news, community links, add-ons, client files, launcher releases
+- [Reference](#reference): settings, build-time defaults, endpoints, file formats
+- [Rebranding for your own server](#rebranding-for-your-own-server)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Known gaps](#known-gaps)
 
-### Game launch
+---
 
-- Launches `Wow.exe` with the client directory as its working directory
-- Prevents a second WoW process from being started when `Wow.exe` is already running
-- Writes Esteria `realmlist` and optional `patchlist` values into `WTF/Config.wtf` while preserving unrelated player settings
-- Optional WDB cleanup before launch
-- Optional minimize-to-taskbar while WoW is running, then restores the launcher when the game exits
-- Realm reachability check over TCP
-
-### Add-on manager
-
-- Reads a launcher-managed add-on catalog from HTTP/HTTPS or a local JSON file
-- Installs versioned ZIP packages into `Interface\AddOns`
-- SHA-256 and optional file-size verification before extraction
-- ZIP path traversal protection
-- Install, reinstall, update, and remove actions
-- Required add-ons can be marked non-removable and installed in one action
-- Installed launcher-managed add-ons can auto-update when their catalog version changes
-- Optional catalog metadata supports author, category, homepage, and changelog fields
-- Managed add-on state is stored under the selected client's `.launcher` directory
-
-### Social, Armory, Database, and launcher tools
-
-- Esteria accounts: unique account name and password, with a signed-in identity that follows the player between devices
-- Server-backed presence, player discovery, friend requests, one-to-one chat, and per-player profile pictures
-- Chat lives in its own draggable, resizable window, with distinct incoming and outgoing message sounds
-- Friend profile cards show bio, header image, avatar, presence, and status, with Send message, Nickname, Favorite, and Remove friend actions; right-clicking a friend opens the same actions as a menu
-- Group chats with up to 20 friends, created from the chat window
-- Community tab: post updates, screenshots, or clips that only your friends can see
-- Animated GIF avatars and animated profile headers
-- Local-only profile, friends, and chat stay available when no account is signed in
-- Local player profile with Online, Away, Do Not Disturb, and Appear Offline presence modes
-- Persistent local friends list, social preferences, one-to-one chat history, search, and unread state
-- Live friend presence can merge data from `/api/v2/social.json` and the server-status character list
-- Armory search reads sanitized character snapshots from `/api/v2/armory/characters.json` and renders character, guild, progression, and equipment data
-- World Database searches `/api/v2/database/index.json` by name, ID, and content type
-- Armory equipment can jump directly into matching World Database items
-- Launcher Tools includes verify, repair, install-folder/AddOns/WTF/Logs/Screenshots shortcuts, WDB cleanup, hash-cache cleanup, updater checks, and diagnostics
-- CDN-backed news cards through `/api/v2/news.json`
-- CDN-backed realm/player/build status through `/api/v2/status`
-- Signed Tauri self-update checks and passive Windows installation
-
-Players can sign in with an Esteria account from the profile dialog. Once signed in, presence, friends, chat, and the profile picture are served by the account API described below and follow the player to any PC. Signed out, the launcher keeps the original local-only behavior.
-
-## Recommended CDN backend
-
-The existing server in:
+## How the pieces fit together
 
 ```text
-R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server
+                 +-------------------------------+
+                 |        Esteria Launcher       |
+                 |  Tauri app (Rust + web UI)    |
+                 +---------------+---------------+
+                                 |
+          +----------------------+----------------------+
+          |                                             |
++---------v-----------+                     +-----------v-----------+
+|     CDN service     |                     |   Game server module  |
+|  (Node, port 7384)  |                     |  mod-launcher-api     |
+|                     |                     |  (inside worldserver, |
+| client files        |                     |   port 8095)          |
+| add-ons + catalog   |                     |                       |
+| launcher updates    |                     | game account + login  |
+| news, patch notes   |                     | characters + services |
+| Esteria accounts,   |                     | live armory           |
+| friends, chat, feed |                     | live world database   |
++---------------------+                     +-----------------------+
 ```
 
-has been extended to support this launcher without breaking the old Electron launcher.
+- The **CDN service** serves everything static or social: the game client, add-ons, launcher updates, news, patch notes, and the Esteria *social* accounts (friends, chat, community feed, avatars).
+- The **game server module** runs inside the worldserver, so it can read the real databases without handing credentials to anything else. It powers the game account, characters, stats, Armory and World Database.
+- The launcher talks to both. A player's Esteria social profile is linked permanently to their game account.
 
-The new endpoints are:
+---
+
+## For players: using the launcher
+
+### Home
+
+- **Play / Install / Update:** the big button changes with your install state. *Install* downloads the whole client into an empty folder, *Update* repairs or updates an existing one, *Play* appears when every managed file is verified.
+- **Channel and realm:** pick Live or PTR under *Game version*. The sidebar shows whether the realm is online and which build is live.
+- **Update marquee:** the banner at the top cycles through the newest stories. **Read story** opens the story inside the launcher.
+- **Latest from Esteria:** the newest three stories as cards; click one to read it. **View all** opens the News tab with every story.
+- **Development feed:** the newest patch-note entries. Click one to jump to it on the Patch Notes page.
+- **Sidebar:** *Add-ons*, *Community* (social links) and *Patch Notes*.
+
+### Installing and keeping the client healthy
+
+1. Click the gear next to **Play** and choose an install folder. It can be empty, or an existing Esteria client the launcher will adopt.
+2. Press **Install**. Downloads are resumable, verified with SHA-256, show speed and ETA, and can be **paused** and resumed from the sidebar.
+3. If files go missing or corrupt, the launcher says how many need repair; press **Update** to fix just those.
+
+An optional **Client download link** (in settings) lets you seed a fresh install from a direct `.zip`, or from a `magnet:` link that opens in your torrent client; the CDN then tops it up.
+
+### Playing
+
+- **Play** writes the realm list into `WTF/Config.wtf` (leaving your other settings alone), optionally clears the WDB cache, and starts `Wow.exe`. It refuses to start a second copy.
+- The first time you press Play the launcher asks what to do while the game runs: **Minimize**, **Send to tray**, or **Keep open**. Tick *Remember* to stop being asked; change it later under settings (*When the game starts*).
+- When the game closes, the launcher comes back by itself.
+- The window's close button works the same way: *Close*, *Minimize*, or *Send to tray* (remembered under settings). With *Send to tray* the launcher keeps running in the system tray; click the tray icon to bring it back, or use its menu to quit.
+
+### Game Account
+
+The account tab (the portrait icon in the game strip). Sign in with your game account name and password, or **Create game account**. The same name and password also create/sign in your Esteria social account.
+
+- **Your Esteria profile card** shows whether your social profile is linked to this game account. The link is **permanent**; it is made automatically the first time you are signed into both, and **Unlink** removes it.
+- **Characters** are shown as cards with their real in-game **portraits**. With a large roster use the search box (name, race, class, zone, guild), the class and status filters (online, max level, still leveling, pending service, in a guild, idle 30+ days), the sort menu (level, name, class, zone, oldest) and the card/compact-list toggle. Large rosters load 48 at a time.
+- **Services:** press **Services** on a character, or pick one in the *Apply to* menu, to start a Rename, Faction change, Race change or Re-customize. The service finishes the next time you pick that character at the in-game character screen; the character must be logged out.
+- **Delete / Restore:** deleting is a soft delete. The character moves to *Deleted characters*, where **Restore** brings it back (needs a free slot and an unused name). Deleted characters are removed for good after the server's retention period (`CharDelete.KeepDays`, 30 by default).
+- **Account security:** change your password (it also updates your Esteria social password if they match) and your email.
+
+### Stats
+
+The star icon. Totals and breakdowns across every character on your game account:
+
+- Tiles: characters, total time played, total gold, max-level count, average level, classes and races played, honorable kills, achievements, honor and arena points, guild count, characters online, your highest-level, most-played and richest character, your most-played class, account age and last character seen.
+- Bars: characters by class, race and level band.
+- A sortable table with a row per character (level, class, played, gold, kills, achievements, honor, arena, last seen, guild). Click a column header to sort, click again to reverse.
+
+### Armory and World Database
+
+Both read **live** from the game server.
+
+- **Armory:** search characters by name, guild, race, class or zone. Results show level, guild, item level, achievement points, last seen and full equipment. Playerbot characters are hidden unless the server enables them.
+- **World Database:** search items, quests, NPCs, spells and zones by name or ID, filtered by type. With no search term it shows the legendary items. Jump from armory equipment straight to the matching item.
+
+### Images
+
+Screenshots from the client's `Screenshots` folder (newest 200). Add tags and private notes (stored only on your PC), rename a file, and **post** one to the community feed with a description. PNG, JPEG, WebP and GIF only; set `screenshotFormat` to `jpeg` in the game client.
+
+### Add-ons
+
+The Add-ons page installs and updates add-ons published by the server into `Interface\AddOns`. Packages are verified (SHA-256 and size) and unpacked safely. **Install required** installs everything the server marks required; required add-ons cannot be removed. Installed add-ons update automatically when the server publishes a newer version, if auto-update is on in settings.
+
+### Community, Patch Notes and the social panel
+
+- **Community** (sidebar): link cards for Discord and the other community sites. Links that are not set yet show *Coming soon*.
+- **Patch Notes** (sidebar): a rich list of releases, newest first, with tag filters (Feature, Fix, Server, ...). The newest three are open; click a release to expand or collapse it.
+- **Community feed** (top navigation): posts, screenshots and clips shared with your friends only.
+- **Friends panel** (right): your profile, presence, friend list, search, requests and **Chats**. The tab on the panel's left edge **collapses** it to a thin strip (remembered between launches).
+- **Profile** (click your name): display name, presence (Online, Away, Do Not Disturb, Appear Offline), status message, bio, header image, favorite character, avatar (animated GIFs work), and the Esteria account sign-in. It shows *Linked to game account X · permanent* when linked.
+- **Chat** opens in its own window: one-to-one chats and group chats of up to 20 friends, with distinct incoming and outgoing sounds. Right-click a friend for profile, nickname, favorite and remove.
+- **While you play,** your profile and friends list show `Playing Esteria - Level 72 Vrykul - Elwynn Forest`, and Discord rich presence is shown when a Discord application ID is configured.
+
+### Notifications
+
+The bell in the title bar shows a count and lists: a launcher update ready to install, friend requests, unread messages, and new patch notes since you last looked. Click an item to act on it.
+
+### Launcher Tools
+
+Verify and repair the install, shortcuts to the install folder, AddOns, WTF, Logs and Screenshots, WDB and hash-cache cleanup, launcher update check, and a diagnostics panel for support.
+
+### Updating the launcher
+
+The launcher checks for signed updates and offers **Install** in the update banner and in the notifications bell. Installs are passive and signature-checked.
+
+---
+
+## For server admins: running it
+
+### Game server module
+
+[`server-modules/mod-launcher-api`](server-modules/mod-launcher-api/README.md) is a standalone AzerothCore module. It gives the launcher:
+
+- game account creation and login, password and email changes,
+- character listing with full stats, delete/restore, and the rename / faction / race / re-customize services,
+- presence (which character an account is playing now),
+- **public live lookups** for the Armory and World Database (cached 60 seconds, rate-limited per IP).
+
+Install:
+
+1. Copy the folder to `azerothcore/modules/mod-launcher-api` and rebuild the worldserver (Docker builds: rebuild the worldserver image).
+2. Copy `conf/mod_launcher_api.conf.dist` to `mod_launcher_api.conf` beside `worldserver.conf` and set `LauncherApi.Enable = 1`.
+3. Open the port (default **8095**). For public servers either set `LauncherApi.Tls.Cert/Key` or put an HTTPS reverse proxy in front.
+4. **Restart the worldserver** after rebuilding; module changes only load at startup.
+
+Notes:
+
+- The launcher's **Game server API** setting must point at this address (default `http://planetkai.hopto.org:8095`).
+- Launcher deletes always **soft delete**, regardless of `CharDelete.Method`, so they can be restored. Deleting from the in-game client still follows your own `worldserver.conf` policy.
+- `LauncherApi.Armory.IncludeBots = 1` shows `RNDBOT*` playerbot characters in the public armory (off by default).
+- Tokens live in memory; a worldserver restart signs launchers out of the game account.
+
+### CDN service
+
+A small Node/TypeScript service (port **7384**) that serves the client, add-ons, launcher updates, news, patch notes and the Esteria social accounts. Esteria runs it from `G:\CDN` (service code in `G:\CDN\server`).
+
+Start it with the launch script in the CDN root; it derives every path from the CDN root folder:
+
+```cmd
+G:\CDN\start_cdn.cmd /check    :: print the resolved paths without starting
+G:\CDN\start_cdn.cmd           :: start the service
+```
+
+Typical CDN root layout:
 
 ```text
-GET /api/v2/build-status?channel=live
-GET /api/v2/client/<channel>/manifest.json
-GET /api/v2/addons/catalog.json
-GET /api/v2/news.json
-GET /api/v2/status
-GET /api/v2/social.json
-GET /api/v2/armory/characters.json?q=<search>
-GET /api/v2/database/index.json?q=<search>&type=<type>
-GET /client/<channel>/<relative-file-path>
-GET /addons/<package-file>
-GET /launcher-updates/latest.json
+G:\CDN\
+  client\live\          the game client (Wow.exe, Data\, Interface\, ...)
+  addons\               add-on .zip files + catalog.json
+  launcher-updates\     launcher installers + latest.json
+  social\               Esteria accounts, friends, chat, avatars  (back this up)
+  news.json             stories for the home page
+  patchnotes.md         patch notes
+  status.json  social.json  (optional)
+  backups\
+  server\               the CDN service itself
 ```
 
-The old launcher endpoints remain available alongside them.
+Operational rules:
 
-### Esteria account and social service
+- **Restart only when code or paths change.** Content that is read on every request needs no restart: `patchnotes.md`, `news.json`, `addons\catalog.json` and the add-on zips, and `launcher-updates\latest.json`.
+- Whatever folder your launch script points at **is** your CDN: put content there, and keep exactly one copy of `social\` live. Do not run two roots.
+- Put the service behind **HTTPS** before inviting players; account names and passwords travel in request bodies.
+- Do not expose the `social` data directory or chat private storage through any static root.
 
-The same service hosts the launcher account API. It keeps accounts, friend links, and chat messages in a small JSON directory and stores uploaded profile pictures next to them, so it needs one writable directory in addition to the CDN tree:
+### Publishing content
+
+#### Patch notes
+
+Edit **`patchnotes.md`** in the CDN root and save. The launcher shows it the next time Patch Notes is opened; no restart needed. The development feed on the home page is the newest entries.
+
+Each release starts with a `##` heading: `## Title | Date | Tag`. Date (`YYYY-MM-DD`) and tag are optional. Newest first. Everything underneath is Markdown.
+
+```markdown
+<!-- Comments like this are ignored -->
+
+## Launcher 0.8 | 2026-11-03 | Feature
+
+A short intro paragraph.
+
+### New
+- **Bold**, *italic*, `code`, and [links](https://example.com)
+- ![images](https://example.com/picture.png) work too
+
+> Block quotes, numbered lists, code fences and --- dividers are supported.
+
+---
+
+## Hotfix | 2026-11-04 | Hotfix
+- Fixed a crash on login.
+```
+
+Known tags get a colour: `Feature`, `Content`, `Fix`, `Hotfix`, `Server`, `Launcher`. Any other tag still works. Raw HTML in the file is escaped, and only `http(s)` links are made clickable.
+
+#### News stories
+
+Edit **`news.json`** in the CDN root (no restart needed). The marquee shows the newest three; the cards and *View all* list the rest. Stories open inside the launcher.
+
+```json
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "title": "Winter update is live",
+      "category": "World",
+      "publishedAt": "2026-12-01T12:00:00Z",
+      "summary": "One sentence shown on the card and the marquee.",
+      "body": "## Full story\n\nMarkdown, same as patch notes.",
+      "imageUrl": "https://cdn.example.com/images/winter.png",
+      "url": "https://example.com/optional-external-link"
+    }
+  ]
+}
+```
+
+Only `title` is required. A story with `body` or `summary` opens in the launcher; one with only `url` opens in the browser. `url` also adds a *Read more online* button to a story that has text. The first items are the newest.
+
+#### Community links
+
+The Community page is built from the `COMMUNITY_LINKS` list at the top of [`ui/pages.js`](ui/pages.js). Set `url` for each site (an empty `url` shows *Coming soon*); the change ships with the next launcher release.
+
+#### Add-ons
+
+Add-ons are served as `.zip` files plus a `catalog.json`. Each zip has its add-on folder at the **root** (`Questie.zip` -> `Questie\Questie.toc`). To publish:
+
+1. Put the zips in the CDN's `addons` folder.
+2. Generate the catalog (reads each zip's `.toc` for title, notes, author and version; hand edits to category, `required`, homepage and changelog are kept on the next run):
+
+```powershell
+node tools/build-addon-catalog.mjs G:/CDN/addons http://planetkai.hopto.org:7384/addons
+```
+
+3. Players see the add-on on the next refresh. Bumping the version in the zip's `.toc` and re-running the script publishes an update.
+
+To change category, mark an add-on `required: true`, or add a changelog, edit `catalog.json` directly; the file format is described under [Add-on catalog format](#add-on-catalog-format).
+
+#### Client files
+
+Two supported ways to produce the client manifest:
+
+- **The CDN builds it** (default): it hashes the client tree into `manifest-v2.json` and serves `/api/v2/client/<channel>/manifest.json`. Player-generated state (Logs, Screenshots, WDB, account WTF data, `.launcher`) is excluded.
+- **Developer-controlled delivery** with a policy file and the staging script, see [Developer-controlled file and folder delivery](#developer-controlled-file-and-folder-delivery).
+
+After changing client files, restart the CDN so it re-hashes the tree and refreshes the manifest. Verify in the launcher: it should report no files needing repair.
+
+#### Launcher releases
+
+1. **Bump the version** in all four places: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `esteria-launcher` entry in `src-tauri/Cargo.lock`.
+2. **Build and sign** (see [signing](#signing-key)):
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\esteria.key"   # a path or the key text
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+npx tauri build
+```
+
+   Without the key, the installers build but no `.sig` files are produced and the updater cannot use them.
+3. **Publish** the NSIS installer, its `.sig`, and `latest.json` to the CDN's `launcher-updates` folder. `tools/Publish-EsteriaLauncher.ps1 -UpdatesRoot <path> -Notes "What changed"` does this (it refuses to publish without a `.sig`); the manifest it writes is:
+
+```json
+{
+  "version": "0.7.9",
+  "notes": "What changed",
+  "pub_date": "2026-10-27T19:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "<contents of the .sig file>",
+      "url": "http://planetkai.hopto.org:7384/launcher-updates/Esteria%20Launcher_0.7.9_x64-setup.exe"
+    }
+  }
+}
+```
+
+4. Check `…/launcher-updates/latest.json` shows the new version and that the downloaded installer matches your build.
+
+Installed launchers check this manifest, verify the signature against the public key compiled into them, and offer the update. Only the **NSIS** installer is used for updates; the MSI is for manual installs.
+
+---
+
+## Reference
+
+### Launcher settings
+
+Open the gear next to **Play**. Settings are saved to `%APPDATA%\EsteriaLauncher\settings.json`.
+
+| Setting | Purpose |
+| --- | --- |
+| Install folder | Where the client lives (can be empty). |
+| Game channel | `live` or `ptr`; switches channel-aware manifest URLs. |
+| Client manifest, Add-on catalog | CDN endpoints for client files and add-ons. |
+| News, Status, Social sources | CDN endpoints for stories, realm status, presence snapshot. |
+| Patch notes source | Defaults to the CDN's `/api/v2/patchnotes.md`. |
+| Armory / Database sources | Default to the game server module's live `/launcher/v1/armory` and `/database`. |
+| Account API | The CDN origin for Esteria accounts, friends and chat. |
+| Game server API | The game server module (default port 8095). |
+| Realm host / port, Patch list | Written into `WTF/Config.wtf` on launch. |
+| Clean WDB before launch | Deletes the `WDB` cache before starting the game. |
+| When the game starts / When closing | `ask`, minimize, tray, keep/close; remembered choices. |
+| Auto-update add-ons | Keeps launcher-managed add-ons current. |
+| Client download link | Optional `.zip` or `magnet:` to seed a fresh install. |
+| Discord rich presence | Shown when a Discord application ID is compiled in. |
+
+### Build-time defaults
+
+Player builds can ship with every endpoint pre-filled so players never see CDN URLs. Set these before compiling; players can still override them in settings.
+
+```powershell
+$env:ESTERIA_DEFAULT_MANIFEST      = 'https://cdn.example.com/api/v2/client/live/manifest.json'
+$env:ESTERIA_DEFAULT_ADDON_CATALOG = 'https://cdn.example.com/api/v2/addons/catalog.json'
+$env:ESTERIA_DEFAULT_NEWS          = 'https://cdn.example.com/api/v2/news.json'
+$env:ESTERIA_DEFAULT_PATCH_NOTES   = 'https://cdn.example.com/api/v2/patchnotes.md'
+$env:ESTERIA_DEFAULT_STATUS        = 'https://cdn.example.com/api/v2/status'
+$env:ESTERIA_DEFAULT_SOCIAL        = 'https://cdn.example.com/api/v2/social.json'
+$env:ESTERIA_DEFAULT_ACCOUNT_API   = 'https://cdn.example.com'
+$env:ESTERIA_DEFAULT_GAME_API      = 'https://game.example.com:8095'
+$env:ESTERIA_DEFAULT_ARMORY        = 'https://game.example.com:8095/launcher/v1/armory'
+$env:ESTERIA_DEFAULT_DATABASE      = 'https://game.example.com:8095/launcher/v1/database'
+$env:ESTERIA_DEFAULT_PATCH_LIST    = 'patch.example.com'
+$env:ESTERIA_DEFAULT_DISCORD_CLIENT = '<Discord application ID>'   # enables Discord rich presence
+npx tauri build
+```
+
+### CDN endpoints
+
+```text
+GET  /api/v2/build-status?channel=live
+GET  /api/v2/client/<channel>/manifest.json
+GET  /api/v2/addons/catalog.json
+GET  /api/v2/news.json
+GET  /api/v2/patchnotes.md
+GET  /api/v2/status
+GET  /api/v2/social.json
+GET  /client/<channel>/<relative-file-path>
+GET  /addons/<package-file>
+GET  /launcher-updates/latest.json
+```
+
+Esteria account and social routes (bearer token after login):
 
 ```text
 POST   /api/v2/account/register        { username, password, displayName? }
 POST   /api/v2/account/login           { username, password }
 POST   /api/v2/account/logout
 GET    /api/v2/account/me
-POST   /api/v2/account/profile         { displayName?, statusMessage?, presence? }
+POST   /api/v2/account/profile         { displayName?, statusMessage?, presence?, bio? }
+POST   /api/v2/account/password        { current, new }
+POST   /api/v2/account/game-link       { gameToken }      links this profile to the signed-in game account
+DELETE /api/v2/account/game-link                          unlinks it
 PUT    /api/v2/account/avatar          { mimeType, dataBase64 }
 DELETE /api/v2/account/avatar
-GET    /avatars/<account-id>.<png|jpg|webp|gif>?v=<version>
-PUT    /api/v2/account/header         { mimeType, dataBase64 }
+PUT    /api/v2/account/header          { mimeType, dataBase64 }
 DELETE /api/v2/account/header
-GET    /headers/<account-id>.<ext>?v=<version>
-GET    /api/v2/social/profiles/<username>
-POST   /api/v2/social/friends/<username>   { nickname?, favorite? }
-GET    /api/v2/social/groups
-POST   /api/v2/social/groups               { name, members: [username] }
-GET    /api/v2/social/groups/<id>/messages?since=<messageId>
-POST   /api/v2/social/groups/<id>/messages { body }
-DELETE /api/v2/social/groups/<id>
-GET    /api/v2/social/posts?since=<postId>
-POST   /api/v2/social/posts                { body, mimeType?, dataBase64? }
-DELETE /api/v2/social/posts/<id>
-GET    /media/<post-id>.<png|jpg|webp|gif|mp4|webm>
 GET    /api/v2/social/feed
 POST   /api/v2/social/heartbeat        { presence?, statusMessage?, displayName? }
 GET    /api/v2/social/discover?q=<name>
 POST   /api/v2/social/friends          { username }
 POST   /api/v2/social/friends/accept   { username }
 DELETE /api/v2/social/friends/<username>
-GET    /api/v2/social/messages?with=<username>&since=<messageId>
+GET    /api/v2/social/messages?with=<username>&since=<id>
 POST   /api/v2/social/messages         { to, body }
+GET    /api/v2/social/groups           POST /api/v2/social/groups { name, members }
+GET    /api/v2/social/posts?since=<id> POST /api/v2/social/posts { body, mimeType?, dataBase64? }
 ```
 
-Passwords are stored as scrypt hashes. Login and registration return a bearer token, and every other account or social route expects it in an `Authorization: Bearer <token>` header. Presence is derived from heartbeats, so a player who stops heartbeating fades to Away and then Offline. Profile pictures accept PNG, JPEG, or WebP up to 2 MB and are validated by magic bytes.
+Profile links are verified server-side: the CDN asks the game server's launcher API who owns the supplied game token, so a client can never claim an account name. A game account can link to only one profile, and a profile to only one game account, until unlinked. Passwords are stored as scrypt hashes; avatars accept PNG, JPEG, WebP and GIF.
 
-Start the CDN service with the account store pointed at a writable directory:
+### Game server endpoints
 
-```powershell
-$env:SOCIAL_DATA_DIR = 'G:\EsteriaCDN\social'
-$env:SOCIAL_PUBLIC_BASE_URL = 'https://cdn.example.com'
-```
-
-Run the end-to-end account check with:
-
-```powershell
-Set-Location R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server
-npm run selftest:social
-```
-
-Put the same host behind HTTPS before inviting players. Account names and passwords travel in the request body, so plain HTTP exposes them to anyone on the path.
-
-### CDN staging layout
-
-A practical server layout is:
+Served by `mod-launcher-api` under `/launcher/v1/` (see the [module README](server-modules/mod-launcher-api/README.md)):
 
 ```text
-G:\EsteriaCDN\
-  client\
-    live\
-      Wow.exe
-      Data\
-      Interface\
-      Extensions\
-      ...
-  addons\
-    catalog.json
-    Questie\
-      1.2.0.zip
-    AtlasLoot\
-      6.05.zip
-  launcher-updates\
-  news.json
-  status.json
-  social.json
-  armory.json
-  database-index.json
-  backups\
+GET  info                              feature flags
+POST register | login | logout
+GET  me                                account name and email
+POST password | email
+GET  characters                        live and deleted characters with stats
+POST characters/<guid>/delete | restore | service
+GET  presence
+GET  armory?q=                         public, cached 60 s
+GET  database?q=&type=                 public, cached 60 s
 ```
 
-Start the existing CDN service with:
+### Client manifest format
 
-```cmd
-R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server\start-cdn.cmd
+The CDN generates this automatically; hand-authored manifests also work for testing.
+
+```json
+{
+  "schemaVersion": 2,
+  "channel": "live",
+  "version": "2026.10.07.1",
+  "files": [
+    { "path": "Wow.exe", "sha256": "<64-character SHA-256>", "size": 12345678, "url": "/client/live/Wow.exe" }
+  ]
+}
 ```
 
-`server\start-cdn.cmd` defaults `ESTERIA_CDN_ROOT` to `G:\EsteriaCDN`, the CDN path on the machine that runs the service, and derives the channel, add-on, update, and account paths from it. Set `ESTERIA_CDN_ROOT` when the CDN lives elsewhere, such as the `Y:` network mount on a workstation. Append `/check` to print the resolved paths without starting anything. The manual equivalent sets the same variables:
+Parent traversal and absolute client paths are rejected.
 
-```powershell
-Set-Location R:\Users\Zach\Documents\GitHub\EsteriaWoW\Launcher-src\server
-$env:CLIENT_ROOT_DIR = 'G:\EsteriaCDN\client'
-$env:CLIENT_CHANNELS = 'live,ptr'
-$env:ADDONS_DIR = 'G:\EsteriaCDN\addons'
-$env:LAUNCHER_UPDATES_DIR = 'G:\EsteriaCDN\launcher-updates'
-$env:NEWS_FILE = 'G:\EsteriaCDN\news.json'
-$env:STATUS_FILE = 'G:\EsteriaCDN\status.json'
-$env:SOCIAL_FILE = 'G:\EsteriaCDN\social.json'
-$env:ARMORY_FILE = 'G:\EsteriaCDN\armory.json'
-$env:DATABASE_FILE = 'G:\EsteriaCDN\database-index.json'
-$env:SOCIAL_DATA_DIR = 'G:\EsteriaCDN\social'
-npm run dev
+### Add-on catalog format
+
+```json
+{
+  "schemaVersion": 1,
+  "baseUrl": "https://cdn.example.com/addons/",
+  "addons": [
+    {
+      "id": "questie",
+      "name": "Questie",
+      "version": "1.2.0",
+      "description": "Quest tracking for Esteria.",
+      "author": "Questie team",
+      "category": "Quests",
+      "homepage": "https://example.com",
+      "changelog": "What changed in this version.",
+      "packageUrl": "Questie.zip",
+      "sha256": "<64-character SHA-256>",
+      "size": 4839210,
+      "folders": ["Questie"],
+      "required": false
+    }
+  ]
+}
 ```
 
-The external server builds `manifest-v2.json` using SHA-256. It excludes player-generated state such as Logs, Screenshots, WDB, account WTF data, and `.launcher` state. The developer-controlled staging workflow below is included in this repository and can be served by any static CDN.
+`packageUrl` may be absolute or relative to `baseUrl`. `folders` lists every add-on folder at the root of the zip (several for add-ons with companion modules). `required: true` marks an add-on as non-removable and installed by **Install required**. `tools/build-addon-catalog.mjs` writes all of this for you.
 
 ### Developer-controlled file and folder delivery
 
-Copy `delivery.example.json` to `.delivery.json` in your **source client** and edit it for your server:
+Copy `delivery.example.json` to `.delivery.json` in your **source client** and edit it:
 
 ```json
 {
@@ -219,13 +469,12 @@ Copy `delivery.example.json` to `.delivery.json` in your **source client** and e
 }
 ```
 
-- `include` selects individual files, folders (including their contents), or wildcard patterns. Nothing is selected implicitly when a policy is present.
-- `folders` also selects each listed folder and its contents. `files` delivers them individually; `zip` creates one compressed download that the launcher verifies and extracts automatically.
-- `exclude` always wins, including inside ZIP folders. Paths are relative to the source client, case-insensitive, and accept `/` or `\`. Patterns use PowerShell wildcards (`*`, `?`, `[abc]`); `*` can cross directory separators, so `Data/*.mpq` also matches MPQs in subdirectories. This is not gitignore syntax.
-- Folder entries must exist and must not overlap. ZIP folders must contain at least one selected file. Unknown options, unsafe paths, selected `.launcher` state, and links/junctions in the source tree fail the build.
-- The policy, generated manifests, and partial launcher downloads are excluded from payloads. Keep credentials and other private files outside the source tree or explicitly excluded; this policy defines what is public.
+- `include` selects files, folders (with contents) or wildcard patterns. Nothing is selected implicitly when a policy exists.
+- `folders` selects a folder too. `files` delivers its files individually; `zip` creates one compressed download that the launcher verifies and unpacks.
+- `exclude` always wins, including inside zip folders. Paths are relative to the source client, case-insensitive, and use PowerShell wildcards (`*`, `?`, `[abc]`); `*` can cross directory separators.
+- Folder entries must exist and must not overlap. Unknown options, unsafe paths, selected `.launcher` state and links/junctions in the source tree fail the build.
 
-Build a release with **PowerShell 7.2 or newer**:
+Build a release with **PowerShell 7.2+**:
 
 ```powershell
 pwsh -File .\tools\New-EsteriaManifest.ps1 `
@@ -236,276 +485,108 @@ pwsh -File .\tools\New-EsteriaManifest.ps1 `
   -BaseUrl 'https://cdn.example.com/client/releases/2026.10.22.1/'
 ```
 
-The script automatically reads `<PayloadRoot>\.delivery.json`. Use `-DeliveryConfig <path>` to keep the policy elsewhere. `PublishRoot` must be a new or empty directory outside the source tree, and `OutputPath` must be directly inside it. The build leaves the source untouched and stages only selected loose files, SHA-256-named ZIPs under `.bundles`, and the manifest. Expanded ZIP members remain in the manifest for per-file verification but are not also uploaded as loose files. The archive is verified again against those file hashes before the manifest is written.
+`PublishRoot` must be new or empty and outside the source tree; `OutputPath` goes directly inside it. Upload the **contents** of `PublishRoot`, including the `.bundles` folder, then point the launcher's manifest setting at the generated manifest (or serve it unchanged from the CDN's manifest endpoint). Upload payloads first and switch the manifest last, and keep old release folders while players may still be downloading them. A missing or corrupt file inside a zip folder re-downloads that whole zip, so use zips for many small files and individual delivery for large independent files. Self-test: `pwsh -File .\tools\Test-EsteriaDelivery.ps1`.
 
-Upload the **contents of PublishRoot** to the matching versioned CDN directory, including `.bundles` (some upload tools skip dot-prefixed directories). Serve this generated manifest directly. Point the launcher's Client manifest setting, or its `ESTERIA_DEFAULT_MANIFEST` build default, at that static manifest or at a stable URL that serves the latest generated manifest. Upload payloads first and switch the stable manifest last; retain previous release directories while players may still be downloading them. Use a short cache lifetime or revalidation for the stable manifest URL.
+For pre-built archives, the CDN also recognises `.delivery-bundles.json` in the client folder (`[{ "path": "Data/Patch-Housing.MPQ", "archive": "Data/Patch-Housing.MPQ.zip" }]`); the expanded folder stays authoritative for per-file verification.
 
-Running this tool does not update the external `/api/v2/client/<channel>/manifest.json` endpoint described above. To use that endpoint with these releases, configure the server to serve the generated JSON unchanged; otherwise configure the launcher with the static manifest URL. Once the generated manifest is wired up, developers can change file selections or delivery modes without rebuilding the launcher.
+---
 
-For a local test, omit `BaseUrl` and select the generated manifest on disk in launcher settings. With no policy and no `PublishRoot`, the script retains its original manifest-only workflow for existing packaging callers.
+## Rebranding for your own server
 
-Changing `zip` to `files`, or changing selections, takes effect on the next release. A missing or corrupt member of a ZIP folder triggers a download of that entire ZIP. Use ZIPs for many small files; use individual delivery for large files that change independently. Bundle updates preserve excluded files and player additions already inside the folder; removing a file from the policy stops managing it and does not delete existing player copies. Preservation needs additional working disk space for those local files.
+The name and identity live in `branding.json`:
 
-Run the delivery tooling self-test with:
+```json
+{ "name": "Esteria", "identifier": "gg.esteria.launcher" }
+```
+
+`tools/Set-Branding.ps1` rewrites every place the name is compiled in or shown, then updates `branding.json`. Pass the brand word only; the launcher adds "Launcher" and "Chat" where needed.
 
 ```powershell
-pwsh -File .\tools\Test-EsteriaDelivery.ps1
+.\tools\Set-Branding.ps1 -Name 'Azeroth'                                  # application ID defaults to gg.<brand>.launcher
+.\tools\Set-Branding.ps1 -Name 'Azeroth' -Icon .\art\azeroth-icon.png      # also regenerates all icons from one square PNG
+npx tauri build
 ```
-
-### Legacy server bundle configuration
-
-For large extracted directories, the server automatically recognizes the two bundle pairs already used by the old launcher when both the expanded directory and ZIP exist:
-
-```text
-Data\Patch-Housing.MPQ       + Data\Patch-Housing.MPQ.zip
-Data\patch-K.mpq             + Data\patch-K.mpq.zip
-```
-
-You can override or extend that list with `G:\EsteriaCDN\client\live\.delivery-bundles.json`:
-
-```json
-[
-  {
-    "path": "Data/Patch-Housing.MPQ",
-    "archive": "Data/Patch-Housing.MPQ.zip"
-  }
-]
-```
-
-The expanded directory remains authoritative for per-file SHA-256 verification in that external server workflow. The ZIP is only the transport bundle and is not installed into the player's client. `.delivery-bundles.json` configures pre-existing archives for that server; `.delivery.json` configures the staging tool above, which builds the archives itself.
-
-For public distribution, put the Node service behind HTTPS with Caddy, IIS, nginx, or another reverse proxy. Do not expose account data or a player's live profile as the CDN source tree.
-
-## Launcher configuration
-
-The current source defaults to the same Esteria host used by the existing launcher: `planetkai.hopto.org:7384`, with `planetkai.hopto.org` as the realm and patch-list host. Those defaults can still be overridden at build time or in launcher settings. The v2 CDN routes must be deployed/restarted on that server before the new launcher can use them.
-
-Open the gear next to Play and configure:
-
-```text
-Esteria install folder
-C:\Games\Esteria
-
-Client manifest
-https://cdn.example.com/api/v2/client/live/manifest.json
-
-Add-on catalog
-https://cdn.example.com/api/v2/addons/catalog.json
-
-Realm host
-logon.example.com
-
-Realm port
-3724
-
-Patch list
-patch.example.com
-```
-
-The install folder can be empty. After verification the button becomes **Install** when a complete client needs to be delivered, **Update** when an existing client needs repair, and **Play** when `Wow.exe` and all managed files are ready.
-
-## Client manifest format
-
-The CDN server generates this automatically. The launcher also accepts hand-authored manifests for testing:
-
-```json
-{
-  "schemaVersion": 2,
-  "channel": "live",
-  "version": "2026.10.07.1",
-  "files": [
-    {
-      "path": "Wow.exe",
-      "sha256": "<64-character SHA-256>",
-      "size": 12345678,
-      "url": "/client/live/Wow.exe"
-    },
-    {
-      "path": "Data/patch-E.mpq",
-      "sha256": "<64-character SHA-256>",
-      "size": 1234567890,
-      "url": "/client/live/Data/patch-E.mpq"
-    }
-  ]
-}
-```
-
-Parent traversal and absolute client paths are rejected.
-
-## Add-on catalog format
-
-Place `catalog.json` in the directory configured as `ADDONS_DIR`:
-
-```json
-{
-  "schemaVersion": 1,
-  "baseUrl": "https://cdn.example.com/addons/",
-  "addons": [
-    {
-      "id": "questie",
-      "name": "Questie",
-      "version": "1.2.0",
-      "description": "Quest tracking for Esteria.",
-      "packageUrl": "Questie/1.2.0.zip",
-      "sha256": "<64-character SHA-256>",
-      "size": 4839210,
-      "folders": ["Questie"],
-      "required": false
-    }
-  ]
-}
-```
-
-Each ZIP should contain its declared add-on folder at the ZIP root:
-
-```text
-Questie-1.2.0.zip
-  Questie\
-    Questie.toc
-    ...
-```
-
-Multiple folders are supported for add-ons that ship companion modules:
-
-```json
-"folders": ["Auctionator", "Auctionator_Config"]
-```
-
-Required add-ons should use:
-
-```json
-"required": true
-```
-
-They cannot be removed through the launcher and can be installed together with **Install required**.
-
-## Build-time defaults
-
-Player builds can ship with CDN fields already populated so users never need to see CDN URLs.
-
-Set these before compiling to override the committed Esteria defaults:
-
-```powershell
-$env:ESTERIA_DEFAULT_MANIFEST = 'https://cdn.example.com/api/v2/client/live/manifest.json'
-$env:ESTERIA_DEFAULT_ADDON_CATALOG = 'https://cdn.example.com/api/v2/addons/catalog.json'
-$env:ESTERIA_DEFAULT_NEWS = 'https://cdn.example.com/api/v2/news.json'
-$env:ESTERIA_DEFAULT_STATUS = 'https://cdn.example.com/api/v2/status'
-$env:ESTERIA_DEFAULT_SOCIAL = 'https://cdn.example.com/api/v2/social.json'
-$env:ESTERIA_DEFAULT_ACCOUNT_API = 'https://cdn.example.com'
-$env:ESTERIA_DEFAULT_ARMORY = 'https://cdn.example.com/api/v2/armory/characters.json'
-$env:ESTERIA_DEFAULT_DATABASE = 'https://cdn.example.com/api/v2/database/index.json'
-$env:ESTERIA_DEFAULT_PATCH_LIST = 'patch.example.com'
-npx --yes @tauri-apps/cli@2.12.1 build
-```
-
-The values are compiled into the Rust binary as defaults. Users can still override them in settings for testing.
-
-## Rebranding for your server
-
-This repository is meant to be forked and rebuilt as a bespoke launcher. The application name
-and its identity live in one file, `branding.json`:
-
-```json
-{
-  "name": "Esteria",
-  "identifier": "gg.esteria.launcher"
-}
-```
-
-Change them with the helper script, which rewrites every place the name is compiled in or shown
-and then updates `branding.json` so the next run starts from the right values. Pass the brand
-word itself, not the full window title; the launcher appends "Launcher" and "Chat" where it
-needs a longer name:
-
-```powershell
-# Brand word only. The application ID defaults to gg.<brand>.launcher
-.\tools\Set-Branding.ps1 -Name 'Azeroth'
-
-# Brand plus a full icon set generated from one square PNG (1024x1024 recommended)
-.\tools\Set-Branding.ps1 -Name 'Azeroth' -Icon .\art\azeroth-icon.png
-```
-
-Then build the release as usual:
-
-```powershell
-npx --yes @tauri-apps/cli@2.12.1 build
-```
-
-The script is idempotent, so run it again whenever you want to rename the launcher a second time.
-
-Pick a brand word that is not already used in the launcher copy. If it is (for example `Azeroth`,
-which already appears in the Wrath-era artwork description), the script warns first, because the
-rename replaces those mentions too.
-
-### What the script changes
 
 | Field | Where it lands |
 | --- | --- |
-| `name` | Window titles (`<name> Launcher` and `<name> Chat`), tray tooltip and menu, `tauri.conf.json` `productName` (installer file name, install folder, Add/Remove Programs entry, shortcuts), `Cargo.toml` description and author, the launcher UI text, toasts, dialogs, and the `%APPDATA%` settings folder (`<name>Launcher`, currently `EsteriaLauncher`) |
-| `identifier` | The Tauri application ID in `tauri.conf.json`. Windows and the signed updater use it to recognize an installed copy, so give your build its own ID. Keep the current one only if you are intentionally shipping updates for the same install |
-| `-Icon` | Regenerates every file in `src-tauri\icons\` from one square PNG and refreshes the embedded fallback in `src-tauri\icon.b64` |
+| `name` | Window titles, tray tooltip and menu, installer/product name, install folder, shortcuts, launcher UI text, and the `%APPDATA%` settings folder. |
+| `identifier` | The Tauri application ID. Windows and the signed updater use it to recognise an installed copy; give your build its own unless you are shipping updates for the same install. |
+| `-Icon` | Regenerates every file in `src-tauri\icons\` and the embedded fallback `src-tauri\icon.b64`. |
 
-Two things intentionally stay the same:
+The executable stays `esteria-launcher.exe` and the build-time overrides keep their `ESTERIA_DEFAULT_*` names. In-app artwork lives in `ui\assets\`; overwrite files keeping the same names (`esteria-icon.png`, `esteria-wordmark.png`, the `tab-*.png` icons, `hero-*.svg`, `news-*.svg`, `sidebar-world.svg`). If you hand-replace `src-tauri\icons\`, keep `icons\icon.ico` or delete `icon.b64`, otherwise the build restores the old icon.
 
-- The executable is still `esteria-launcher.exe` (the Cargo package name), so `Run-Launcher.cmd`
-  keeps working. To rename it, change `name` in `src-tauri\Cargo.toml` and the paths in
-  `Run-Launcher.cmd`.
-- The build-time endpoint overrides keep the `ESTERIA_DEFAULT_*` names documented above, so
-  existing build scripts keep working.
-
-### Icons and artwork
-
-- `-Icon` covers the application icon, installer icon, taskbar icon, and tray icon, because
-  Tauri generates all of them from the single source image.
-- `src-tauri\icons\` is generated output. If you replace it by hand instead of using `-Icon`,
-  keep `icons\icon.ico` or delete `src-tauri\icon.b64`; `build.rs` regenerates `icon.ico` from
-  `icon.b64` whenever that file is missing, which would otherwise restore the old icon.
-- In-app artwork lives in `ui\assets\`. Overwrite the files and keep the same names:
-  `esteria-icon.png` (title bar and game tab), `esteria-wordmark.png` (sidebar logo),
-  `tab-armory.png` / `tab-database.png` / `tab-tools.png`, the `hero-*.svg` and `news-*.svg`
-  cards, and `sidebar-world.svg`.
-- The title-bar name is styled with `text-transform: uppercase`, so the app name appears in
-  capitals even though `branding.json` stores it in normal case.
+---
 
 ## Development
 
-```powershell
-cargo run --manifest-path .\src-tauri\Cargo.toml
-```
-
-Run validation with:
+Requirements: Rust (stable), Node 20+, and the Tauri 2 prerequisites for Windows (WebView2, MSVC build tools).
 
 ```powershell
-node --check .\ui\app.js
-cargo test --manifest-path .\src-tauri\Cargo.toml
+npm install                                              # installs the Tauri CLI
+npx tauri dev                                            # run the app in development mode (UI files load from ui/; restart to pick up UI edits)
+cargo check --manifest-path .\src-tauri\Cargo.toml       # quick type check
+cargo test  --manifest-path .\src-tauri\Cargo.toml       # unit tests
+node --check .\ui\app.js                                 # syntax-check a UI script (same for the others)
+npx tauri build                                          # signed installers (see Launcher releases)
 ```
 
-Build a release executable with:
+Installers appear in `src-tauri\target\release\bundle\nsis` and `...\msi`. A release build needs a few GB of free disk; set `CARGO_TARGET_DIR` to put build output on another drive.
+
+### Signing key
+
+Updates are verified against the **public key** in `src-tauri/tauri.conf.json`. The matching **private key** must stay outside the repository and be backed up: if it is lost, already-installed launchers can never trust a future release and must be reinstalled by hand.
 
 ```powershell
-cargo build --release --manifest-path .\src-tauri\Cargo.toml
+npx tauri signer generate -w "$env:USERPROFILE\.tauri\esteria.key"    # new key pair; paste the .pub into tauri.conf.json
 ```
 
-Build signed Windows installers and updater artifacts with:
+Tauri 2 reads `TAURI_SIGNING_PRIVATE_KEY` (a key file path or the key text) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Changing the key means every installed launcher must reinstall once.
 
-```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY = 'C:\Users\Zach\esteria-updater.key'
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
-npx --yes @tauri-apps/cli@2.12.1 build
+### Repository layout
+
+```text
+src-tauri/            Rust backend: install/verify/download engine, add-ons, settings, tray, commands
+  src/main.rs         core launcher logic and Tauri commands
+  src/extras.rs       pause/resume, screenshots, Discord presence, character portraits from client MPQs
+ui/                   the interface (no build step)
+  index.html styles.css
+  app.js              shell, news, social panel, profile, settings, armory, database, tools
+  game.js             game account, characters, images, presence
+  stats.js            Stats tab
+  pages.js            Community, Patch Notes, story reader, notifications, friends-panel collapse, profile link
+  chat.* chat-media.js  the chat window
+server-modules/mod-launcher-api/   AzerothCore module (game account, characters, live armory/database)
+tools/                manifest builder, delivery tests, add-on catalog builder, release publisher, branding
+addon/EsteriaChat/    in-game chat addon (staged)
+native/               client-side chat extension and media helper (staged)
+docs/                 in-game chat design and operations notes
 ```
 
-The private updater key is intentionally stored outside this repository. Back it up securely. Losing it prevents already-installed launchers from trusting future releases.
+Character portraits are read at runtime from the player's own client files (the `TemporaryPortrait-*` textures in the MPQs), so custom races work without shipping any artwork.
 
-Publish the newest NSIS build to the CDN and generate `latest.json` with:
+---
 
-```powershell
-.\tools\Publish-EsteriaLauncher.ps1 -UpdatesRoot 'G:\EsteriaCDN\launcher-updates'
-```
+## Troubleshooting
 
-## Still planned
+| Symptom | Likely cause and fix |
+| --- | --- |
+| Stats tab, new character stats, or Armory / World Database are empty | The game server module is not rebuilt, not running, or port 8095 is not reachable. Rebuild the worldserver with the current `mod-launcher-api`, restart it, and check `http://<host>:8095/launcher/v1/info`. |
+| Deleted a character and it is not under *Deleted characters* | An old module build hard-deleted it (the core erases characters when `CharDelete.Method = 0`). The current module forces a soft delete; a character deleted by the old build cannot be recovered. |
+| Add-ons page is empty | `addons\catalog.json` is missing from the folder the CDN serves. Run `tools/build-addon-catalog.mjs`. |
+| Patch Notes says *No patch notes have been published yet* | `patchnotes.md` is missing from the CDN root, or the CDN is serving a different root. Check the launch script's `/check` output. |
+| Launcher does not offer an update | `launcher-updates\latest.json` is older, or the installer was built without the signing key (no `.sig`). Installs older than the current key must be reinstalled manually. |
+| Profile will not link to the game account | Sign into the game account first; the CDN must reach the game server at `http://127.0.0.1:8095` (set `GAME_API_URL` for the CDN if it is elsewhere). Another profile may already own that game account. |
+| Build fails with "no space on device" | Free disk, or set `CARGO_TARGET_DIR` to another drive. |
+| Installers build but no `.sig` appears | `TAURI_SIGNING_PRIVATE_KEY` is not set in that terminal (use that exact name; `..._PATH` is the old Tauri 1 variable). |
+| Discord presence never shows | No Discord application ID was compiled in; set `ESTERIA_DEFAULT_DISCORD_CLIENT` before building. |
 
-- Authoritative game-account linking so a launcher sign-in also authenticates the WoW account
-- Direct server-side snapshot generation from the AzerothCore character/world databases; the launcher-facing API is already isolated from database credentials
-- Advanced Git add-on source support for developers
+---
 
-MPQ-internal patching from the old Electron launcher is intentionally not part of the first Tauri updater. For the initial player release, changed MPQs are delivered as complete verified files. This keeps client repair predictable and removes the native StormLib dependency from the new launcher.
+## Known gaps
+
+- **In-game chat** (addon, native extension, bridge): source is staged under `addon/`, `native/` and `docs/` but is not deployed; see `docs/in-game-chat-operations.md` for the rollout gates.
+- **Community links** other than Discord are placeholders until their URLs are set in `ui/pages.js`.
+- **Discord rich presence** needs a Discord application ID at build time.
+- Character portraits skip client archives larger than 8 GB, and Images shows the newest 200 screenshots.
+- Advanced Git add-on sources for developers are not implemented.
+- MPQ-internal patching from the old Electron launcher is intentionally not included: changed MPQs are delivered as complete verified files, which keeps repair predictable and avoids a native StormLib dependency.

@@ -31,9 +31,13 @@
         <button class="icon-button" id="downloadsButton" type="button" title="Downloads" aria-label="Downloads">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v9.2l3-3 1.4 1.4L12 17l-5.4-5.4L8 10.2l3 3V4Zm-5 15h12v2H6v-2Z"/></svg>
         </button>
-        <button class="icon-button" type="button" title="Notifications" aria-label="Notifications" data-toast="No new notifications">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a5 5 0 0 1 5 5v3.6l1.7 3.4H20v2H4v-2h1.3L7 11.6V8a5 5 0 0 1 5-5Zm-2 16h4a2 2 0 0 1-4 0Z"/></svg>
-        </button>
+        <div class="notif-wrap">
+          <button class="icon-button" id="notifButton" type="button" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a5 5 0 0 1 5 5v3.6l1.7 3.4H20v2H4v-2h1.3L7 11.6V8a5 5 0 0 1 5-5Zm-2 16h4a2 2 0 0 1-4 0Z"/></svg>
+            <span class="notif-badge" id="notifBadge" hidden></span>
+          </button>
+          <div class="notif-panel" id="notifPanel" hidden></div>
+        </div>
         <div class="window-controls">
           <button class="window-button" id="minimizeButton" type="button" aria-label="Minimize">−</button>
           <button class="window-button" id="maximizeButton" type="button" aria-label="Maximize">□</button>
@@ -44,7 +48,7 @@
 
     <section class="primary-shell">
       <nav class="game-strip" aria-label="Esteria applications">
-        <button class="all-games-button" type="button" data-toast="Game library view is planned">
+        <button class="all-games-button" id="allGamesButton" type="button" title="Esteria is the only game for now">
           <span class="grid-icon" aria-hidden="true">⠿</span>
           <span>All Games</span>
         </button>
@@ -53,6 +57,9 @@
         </button>
         <button class="game-tab" id="armoryTabButton" type="button" aria-label="Armory" title="Armory" data-view="armory"><img src="./assets/tab-armory.png" alt="" /></button>
         <button class="game-tab" id="databaseTabButton" type="button" aria-label="World Database" title="World Database" data-view="database"><img src="./assets/tab-database.png" alt="" /></button>
+        <button class="game-tab" id="accountTabButton" type="button" aria-label="Game Account" title="Game Account" data-view="account"><img src="./assets/tab-account.png" alt="" /></button>
+        <button class="game-tab" id="statsTabButton" type="button" aria-label="Stats" title="Stats" data-view="stats"><img src="./assets/tab-stats.png" alt="" /></button>
+        <button class="game-tab" id="imagesTabButton" type="button" aria-label="Images" title="Images" data-view="images"><img src="./assets/tab-images.png" alt="" /></button>
         <button class="game-tab" id="toolsTabButton" type="button" aria-label="Launcher Tools" title="Launcher Tools" data-view="tools"><img src="./assets/tab-tools.png" alt="" /></button>
       </nav>
 
@@ -68,10 +75,10 @@
             <button type="button" id="addonsNavButton">
               <span class="link-icon">◇</span><span>Add-ons</span>
             </button>
-            <button type="button" data-toast="Community link will be configurable">
+            <button type="button" id="linksNavButton">
               <span class="link-icon">▣</span><span>Community</span>
             </button>
-            <button type="button" data-toast="Patch notes page is next on the launcher roadmap">
+            <button type="button" id="patchNotesNavButton">
               <span class="link-icon">✦</span><span>Patch Notes</span>
             </button>
           </nav>
@@ -86,6 +93,7 @@
             <div class="progress-track" aria-hidden="true">
               <div class="progress-fill" id="progressFill"></div>
             </div>
+            <button class="field-button pause-button" id="pauseDownloadButton" type="button" hidden>Pause</button>
           </div>
 
           <label class="field-label" for="versionSelect">Game version</label>
@@ -126,7 +134,7 @@
           <section class="news-section" id="newsSection">
             <div class="section-heading">
               <h2>Latest from Esteria</h2>
-              <button type="button" data-toast="Full news archive is planned">View all</button>
+              <button type="button" id="newsViewAllButton">View all</button>
             </div>
             <div class="news-grid" id="newsGrid">
               <article class="news-card" tabindex="0">
@@ -160,17 +168,8 @@
             <div class="section-heading">
               <h2>Development feed</h2>
             </div>
-            <div class="feed-list">
-              <button type="button" class="feed-item" data-toast="Patch-note detail view is planned">
-                <span class="feed-date">Oct 7</span>
-                <span class="feed-title">Launcher shell and desktop integration started</span>
-                <span class="feed-arrow">›</span>
-              </button>
-              <button type="button" class="feed-item" data-toast="Race detail view is planned">
-                <span class="feed-date">Oct 6</span>
-                <span class="feed-title">Character race and portrait work continues</span>
-                <span class="feed-arrow">›</span>
-              </button>
+            <div class="feed-list" id="devFeed">
+              <div class="friends-empty">No updates published yet.</div>
             </div>
           </section>
 
@@ -236,6 +235,145 @@
             </div>
           </section>
 
+          <section class="launcher-page" id="statsSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Stats</h2>
+                <p>Time played, gold, kills and more across every character on your game account.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshStatsButton">Refresh</button>
+            </div>
+            <div class="empty-detail" id="statsSignedOut">Sign in on the Game Account tab to see your character stats.</div>
+            <div class="game-account-manage" id="statsBody" hidden>
+              <div class="empty-detail" id="statsEmpty" hidden>No characters on this account yet.</div>
+              <div class="char-stats" id="statsTiles"></div>
+              <div class="char-breakdown" id="statsBreakdown"></div>
+              <h3 class="ga-heading">All characters</h3>
+              <div class="stats-table-wrap">
+                <table class="stats-table"><thead id="statsTableHead"></thead><tbody id="statsTableBody"></tbody></table>
+              </div>
+            </div>
+          </section>
+
+          <section class="launcher-page" id="accountSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Game Account</h2>
+                <p>Your Esteria game account. The same name and password work in the launcher and in the game.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshGameAccountButton">Refresh</button>
+            </div>
+            <div class="game-account-auth" id="gameAuth">
+              <label for="gameUsernameInput">Account name</label>
+              <input id="gameUsernameInput" type="text" maxlength="17" autocomplete="username" spellcheck="false" placeholder="3-17 letters or numbers" />
+              <label for="gamePasswordInput">Password</label>
+              <input id="gamePasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="6-16 characters" />
+              <label for="gameEmailInput">Email (only when creating an account)</label>
+              <input id="gameEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" />
+              <div class="account-actions">
+                <button class="dialog-primary" id="gameLoginButton" type="button">Sign in</button>
+                <button class="dialog-secondary" id="gameRegisterButton" type="button">Create game account</button>
+              </div>
+            </div>
+            <div class="game-account-manage" id="gameManage" hidden>
+              <div class="ga-card ga-header">
+                <div>
+                  <small>Signed in as</small>
+                  <strong id="gameAccountName">-</strong>
+                </div>
+                <button class="dialog-danger" type="button" id="gameLogoutButton">Sign out</button>
+              </div>
+
+              <div class="ga-card ga-link" id="gameLinkCard">
+                <div>
+                  <small>Esteria social profile</small>
+                  <strong id="gameLinkTitle">Not linked</strong>
+                  <span id="gameLinkNote"></span>
+                </div>
+                <div class="char-actions" id="gameLinkActions"></div>
+              </div>
+
+              <div class="ga-heading-row">
+                <h3 class="ga-heading">Characters <span class="ga-count" id="gameCharCount"></span></h3>
+              </div>
+              <div class="char-toolbar">
+                <input id="gameCharSearch" type="search" placeholder="Search name, race, class, zone or guild" autocomplete="off" />
+                <select id="gameCharClass" aria-label="Filter by class"><option value="">All classes</option></select>
+                <select id="gameCharStatus" aria-label="Filter by status">
+                  <option value="">All characters</option>
+                  <option value="online">Online now</option>
+                  <option value="max">Max level</option>
+                  <option value="leveling">Still leveling</option>
+                  <option value="pending">Pending service</option>
+                  <option value="guilded">In a guild</option>
+                  <option value="idle">Idle 30+ days</option>
+                </select>
+                <select id="gameCharSort" aria-label="Sort characters">
+                  <option value="level">Highest level</option>
+                  
+                  
+                  
+                  
+                  
+                  <option value="name">Name A-Z</option>
+                  <option value="class">Class</option>
+                  <option value="zone">Zone</option>
+                  <option value="created">Oldest first</option>
+                </select>
+                <div class="char-view" role="group" aria-label="Layout">
+                  <button type="button" class="is-active" data-charview="grid" title="Cards">&#9638;</button>
+                  <button type="button" data-charview="list" title="Compact list">&#9776;</button>
+                </div>
+              </div>
+              <div class="char-grid" id="gameCharacters"></div>
+              <button type="button" class="dialog-secondary char-more" id="gameCharMore" hidden></button>
+
+              <h3 class="ga-heading">Character services</h3>
+              <div class="ga-card">
+                <div class="ga-service-pick">
+                  <label for="gameServiceCharacter">Apply to</label>
+                  <select id="gameServiceCharacter"></select>
+                </div>
+                <div class="service-grid" id="gameServices"></div>
+                <p class="ga-note">A service is applied the next time you select that character at the in-game character screen. The character must be logged out.</p>
+              </div>
+
+              <h3 class="ga-heading">Deleted characters</h3>
+              <div class="char-list" id="gameDeleted"></div>
+
+              <h3 class="ga-heading">Account security</h3>
+              <div class="game-account-forms">
+                <div class="ga-card">
+                  <strong>Change password</strong>
+                  <input id="gameCurrentPasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="Current password" />
+                  <input id="gameNewPasswordInput" type="password" maxlength="16" autocomplete="new-password" placeholder="New password (6-16)" />
+                  <button class="dialog-secondary" id="gameChangePasswordButton" type="button">Update password</button>
+                </div>
+                <div class="ga-card">
+                  <strong>Change email</strong>
+                  <input id="gameEmailPasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="Password" />
+                  <input id="gameNewEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" placeholder="New email" />
+                  <button class="dialog-secondary" id="gameChangeEmailButton" type="button">Update email</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="launcher-page" id="imagesSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Images</h2>
+                <p>Screenshots from your client's Screenshots folder. Share one with your friends on the community feed.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshImagesButton">Refresh</button>
+            </div>
+            <div class="page-search-row">
+              <input id="imageSearchInput" type="search" placeholder="Search screenshots by file name, tag, or note" autocomplete="off" />
+            </div>
+            <div class="image-grid" id="imageGrid"></div>
+            <div class="addons-empty" id="imagesEmpty" hidden>No screenshots yet. Press Print Screen in game to take one.</div>
+          </section>
+
           <section class="launcher-page" id="toolsSection" hidden>
             <div class="launcher-page-toolbar">
               <div>
@@ -261,6 +399,41 @@
               <pre id="diagnosticsOutput">Loading diagnostics…</pre>
             </div>
           </section>
+          <section class="launcher-page" id="storySection" hidden>
+            <div class="launcher-page-toolbar">
+              <button type="button" class="page-action" id="storyBackButton">&lsaquo; Back</button>
+            </div>
+            <article class="story">
+              <img class="story-image" id="storyImage" alt="" hidden />
+              <div class="story-meta" id="storyMeta"></div>
+              <h1 id="storyTitle"></h1>
+              <div class="note-body story-body" id="storyBody"></div>
+              <button type="button" class="dialog-primary" id="storyLinkButton" hidden>Read more online</button>
+            </article>
+          </section>
+
+          <section class="launcher-page" id="linksSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Community</h2>
+                <p>Join the Esteria community: ask questions, find groups, share screenshots and follow the news.</p>
+              </div>
+            </div>
+            <div class="link-cards" id="linkCards"></div>
+          </section>
+
+          <section class="launcher-page" id="patchNotesSection" hidden>
+            <div class="launcher-page-toolbar">
+              <div>
+                <h2>Patch Notes</h2>
+                <p>What changed in Esteria, newest first.</p>
+              </div>
+              <button type="button" class="page-action" id="refreshPatchNotesButton">Refresh</button>
+            </div>
+            <div class="notes-filters" id="patchNotesFilters"></div>
+            <div class="notes-list" id="patchNotesList"></div>
+          </section>
+
           <section class="community-section" id="communitySection" hidden>
             <div class="section-heading">
               <h2>Community</h2>
@@ -281,6 +454,7 @@
     </section>
 
     <aside class="social-panel">
+      <button class="social-toggle" id="socialToggle" type="button" aria-label="Collapse friends panel" title="Collapse friends panel">&raquo;</button>
       <button class="profile-row profile-row-button" id="profileButton" type="button" aria-label="Edit player profile and presence">
         <div class="avatar" id="profileAvatar">P</div>
         <div class="profile-copy">
@@ -306,6 +480,37 @@
 
       <button class="chats-button" id="chatsButton" type="button">Chats <span id="chatUnreadCount" hidden></span></button>
     </aside>
+  </div>
+
+  <div class="settings-backdrop" id="shotBackdrop" hidden>
+    <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="shotTitle">
+      <div class="dialog-header">
+        <h2 id="shotTitle">Screenshot</h2>
+        <button id="closeShotButton" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="dialog-body">
+        <img id="shotPreview" class="shot-preview" alt="" />
+        <label for="shotNameInput">File name</label>
+        <div class="path-row">
+          <input id="shotNameInput" type="text" maxlength="100" spellcheck="false" />
+          <button class="field-button" id="renameShotButton" type="button">Rename</button>
+        </div>
+        <label for="shotTagsInput">Tags (comma separated)</label>
+        <input id="shotTagsInput" type="text" maxlength="400" placeholder="raid, funny, transmog" spellcheck="false" />
+        <label for="shotNoteInput">Personal notes</label>
+        <textarea id="shotNoteInput" rows="3" maxlength="2000" placeholder="Only you see this. Notes and tags stay on this PC."></textarea>
+        <div class="account-actions">
+          <button class="dialog-secondary" id="saveShotMetaButton" type="button">Save tags and notes</button>
+        </div>
+        <label for="shotBodyInput">Community post description</label>
+        <textarea id="shotBodyInput" rows="3" maxlength="500" placeholder="Say something about this moment"></textarea>
+        <p>Posting shares only the picture and this description with your friends. Tags and personal notes are never uploaded.</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="dialog-secondary" id="cancelShotButton" type="button">Close</button>
+        <button class="dialog-primary" id="postShotButton" type="button">Post to community</button>
+      </div>
+    </section>
   </div>
 
   <div class="settings-backdrop" id="settingsBackdrop" hidden>
@@ -348,6 +553,14 @@
         <input id="accountApiInput" type="text" placeholder="http://planetkai.hopto.org:7384" spellcheck="false" />
         <p>Hosts the account, presence, friend, chat, and profile-picture endpoints used when you sign in.</p>
 
+        <label for="gameApiInput">Game server API</label>
+        <input id="gameApiInput" type="text" placeholder="http://planetkai.hopto.org:8095" spellcheck="false" />
+        <p>Address of the server's mod-launcher-api: game account creation, character management, and in-game presence.</p>
+
+        <label for="clientSourceInput">Client download link (optional)</label>
+        <input id="clientSourceInput" type="text" placeholder="https://example.com/client.zip or magnet:?xt=..." spellcheck="false" />
+        <p>Leave blank to use the CDN. A .zip link is downloaded and extracted into an empty install folder before the CDN fills in the rest. A magnet link opens in your torrent client; set its download folder to the install folder, then press Verify.</p>
+
         <label for="armorySourceInput">Armory snapshot</label>
         <input id="armorySourceInput" type="text" placeholder="https://cdn.example.com/api/v2/armory/characters.json" spellcheck="false" />
 
@@ -371,6 +584,7 @@
         <div class="settings-options">
           <label><input id="cleanWdbInput" type="checkbox" checked /> Clean WDB before launching</label>
           <label><input id="autoUpdateAddonsInput" type="checkbox" checked /> Automatically update launcher-managed add-ons</label>
+          <label><input id="discordPresenceInput" type="checkbox" checked /> Show what I'm playing on Discord</label>
         </div>
         <div class="settings-grid">
           <div>
@@ -435,7 +649,8 @@
           <span class="account-avatar" id="accountAvatar">?</span>
           <div class="account-copy">
             <strong id="accountName">Not signed in</strong>
-            <small id="accountHint">Create an Esteria account to share your presence, friends, and chat with other players.</small>
+            <small class="game-link-badge" id="accountGameLink"></small>
+<small id="accountHint">Create an Esteria account to share your presence, friends, and chat with other players.</small>
           </div>
         </div>
         <div class="account-signed-out" id="accountSignedOut">
@@ -443,6 +658,8 @@
           <input id="accountUsernameInput" type="text" maxlength="20" autocomplete="username" spellcheck="false" placeholder="3-20 letters, numbers, dot, dash, underscore" />
           <label for="accountPasswordInput">Password</label>
           <input id="accountPasswordInput" type="password" maxlength="128" autocomplete="current-password" />
+          <label for="accountEmailInput">Email (needed to create an account)</label>
+          <input id="accountEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" />
           <div class="account-actions">
             <button class="dialog-primary" id="accountLoginButton" type="button">Sign in</button>
             <button class="dialog-secondary" id="accountRegisterButton" type="button">Create account</button>
@@ -594,5 +811,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="./app.js"></script>
+  <script src="./game.js"></script>
+    <script src="./stats.js"></script>
+    <script src="./pages.js"></script>
 </body>
 </html>
