@@ -232,7 +232,8 @@ pub async fn set_discord_presence(client_id: String, details: String, state: Str
         serde_json::json!({
             "details": details.chars().take(128).collect::<String>(),
             "state": state.chars().take(128).collect::<String>(),
-            "timestamps": { "start": started }
+            "timestamps": { "start": started },
+            "assets": { "large_image": "icon", "large_text": "Esteria" }
         })
     };
     tokio::task::spawn_blocking(move || discord_send(client_id.trim(), activity))

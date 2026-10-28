@@ -210,7 +210,7 @@ fn default_game_api() -> String {
 }
 
 fn default_discord_client_id() -> String {
-    option_env!("ESTERIA_DEFAULT_DISCORD_CLIENT").unwrap_or("").to_string()
+    option_env!("ESTERIA_DEFAULT_DISCORD_CLIENT").unwrap_or("1564826324672188418").to_string()
 }
 
 fn default_armory_source() -> String {
@@ -675,6 +675,9 @@ fn load_settings_from_disk() -> LauncherSettings {
         }
         settings.settings_version = 7;
         let _ = save_settings_to_disk(&settings);
+    }
+    if settings.discord_client_id.trim().is_empty() {
+        settings.discord_client_id = default_discord_client_id();
     }
     settings
 }
