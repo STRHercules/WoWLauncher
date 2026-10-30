@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS = {
   realmPort: 3724,
   patchList: 'planetkai.hopto.org',
   cleanWdb: true,
+  clearCache: true,
   closeAction: 'ask',
   playAction: 'ask'
 };
@@ -1347,6 +1348,7 @@ async function startGame(action) {
     await syncDiscord();
     showToast(result === null ? 'Desktop launch hook is ready.' : 'Esteria has closed.');
   } catch (error) {
+    await invokeTauri('show_main_window').catch(console.warn);
     showToast(String(error), 5200);
   }
 }
@@ -1418,6 +1420,7 @@ const armorySourceInput = $('#armorySourceInput');
 const databaseSourceInput = $('#databaseSourceInput');
 const patchListInput = $('#patchListInput');
 const cleanWdbInput = $('#cleanWdbInput');
+const clearCacheInput = $('#clearCacheInput');
 const closeActionSelect = $('#closeActionSelect');
 const playActionSelect = $('#playActionSelect');
 
@@ -1767,6 +1770,7 @@ function populateSettingsForm() {
   databaseSourceInput.value = appState.settings.databaseSource || '';
   patchListInput.value = appState.settings.patchList || '';
   cleanWdbInput.checked = appState.settings.cleanWdb !== false;
+  clearCacheInput.checked = appState.settings.clearCache !== false;
   closeActionSelect.value = appState.settings.closeAction || DEFAULT_SETTINGS.closeAction;
   playActionSelect.value = appState.settings.playAction || DEFAULT_SETTINGS.playAction;
 
@@ -1938,6 +1942,7 @@ $('#saveSettingsButton').addEventListener('click', async () => {
     realmPort: port,
     patchList: patchListInput.value.trim(),
     cleanWdb: cleanWdbInput.checked,
+    clearCache: clearCacheInput.checked,
     minimizeOnPlay: false,
     closeAction: closeActionSelect.value,
     playAction: playActionSelect.value

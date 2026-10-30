@@ -324,6 +324,7 @@ Open the gear next to **Play**. Settings are saved to `%APPDATA%\EsteriaLauncher
 | Game server API | The game server module (default port 8095). |
 | Realm host / port, Patch list | Written into `WTF/Config.wtf` on launch. |
 | Clean WDB before launch | Deletes the `WDB` cache before starting the game. |
+| Clear Cache before launch | On by default. Deletes the client's `Cache` folder before starting the game; launch stops if cleanup fails. |
 | When the game starts / When closing | `ask`, minimize, tray, keep/close; remembered choices. |
 | Auto-update add-ons | Keeps launcher-managed add-ons current. |
 | Client download link | Optional `.zip` or `magnet:` to seed a fresh install. |

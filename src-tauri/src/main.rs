@@ -96,6 +96,8 @@ struct LauncherSettings {
     #[serde(default = "default_true")]
     clean_wdb: bool,
     #[serde(default = "default_true")]
+    clear_cache: bool,
+    #[serde(default = "default_true")]
     minimize_on_play: bool,
     /// "ask", "close", "tray", or "minimize" — what the close button should do.
     #[serde(default = "default_close_action")]
@@ -129,6 +131,7 @@ impl Default for LauncherSettings {
             realm_port: default_realm_port(),
             patch_list: default_patch_list(),
             clean_wdb: true,
+            clear_cache: true,
             minimize_on_play: true,
             close_action: default_close_action(),
             play_action: default_play_action(),
@@ -1788,6 +1791,18 @@ fn choose_install_directory() -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
+fn clear_cache_before_launch(root: &Path, enabled: bool) -> Result<(), String> {
+    if !enabled {
+        return Ok(());
+    }
+    let cache = root.join("Cache");
+    match fs::remove_dir_all(&cache) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not clear {} before launch: {error}", cache.display())),
+    }
+}
+
 #[tauri::command]
 fn launch_game(app: tauri::AppHandle, settings: LauncherSettings) -> Result<(), String> {
     let executable = game_executable_from_settings(&settings)?;
@@ -1806,6 +1821,7 @@ fn launch_game(app: tauri::AppHandle, settings: LauncherSettings) -> Result<(), 
     if settings.clean_wdb {
         let _ = fs::remove_dir_all(root.join("WDB"));
     }
+    clear_cache_before_launch(&root, settings.clear_cache)?;
 
     let mut child = Command::new(&executable)
         .current_dir(&root)
@@ -3013,6 +3029,40 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn clear_cache_defaults_on_and_preserves_saved_choice() {
+        assert!(LauncherSettings::default().clear_cache);
+        let mut settings: LauncherSettings = serde_json::from_str("{}").unwrap();
+        assert!(settings.clear_cache);
+        settings.clear_cache = false;
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: LauncherSettings = serde_json::from_str(&json).unwrap();
+        assert!(!restored.clear_cache);
+    }
+
+    #[test]
+    fn clear_cache_before_launch_respects_toggle_and_reports_failure() {
+        let temp = tempdir().unwrap();
+        let root = temp.path();
+        let cache = root.join("Cache");
+        fs::create_dir_all(cache.join("WDB/enUS")).unwrap();
+        fs::write(cache.join("WDB/enUS/creaturecache.wdb"), b"stale cache").unwrap();
+        fs::create_dir_all(root.join("WTF")).unwrap();
+        fs::write(root.join("WTF/Config.wtf"), b"player settings").unwrap();
+
+        clear_cache_before_launch(root, false).unwrap();
+        assert!(cache.join("WDB/enUS/creaturecache.wdb").is_file());
+        clear_cache_before_launch(root, true).unwrap();
+        assert!(!cache.exists());
+        assert_eq!(fs::read(root.join("WTF/Config.wtf")).unwrap(), b"player settings");
+        clear_cache_before_launch(root, true).unwrap();
+
+        fs::write(&cache, b"not a directory").unwrap();
+        let error = clear_cache_before_launch(root, true).unwrap_err();
+        assert!(error.contains("before launch"));
+        assert_eq!(fs::read(&cache).unwrap(), b"not a directory");
+    }
 
     #[test]
     fn manifest_paths_reject_parent_traversal() {

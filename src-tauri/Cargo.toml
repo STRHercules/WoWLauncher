@@ -1,6 +1,6 @@
 [package]
 name = "esteria-launcher"
-version = "0.8.1"
+version = "0.8.2"
 description = "Desktop launcher for Esteria"
 authors = ["Esteria"]
 edition = "2021"
