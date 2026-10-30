@@ -1731,11 +1731,18 @@ fn update_config_wtf(settings: &LauncherSettings) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
 fn is_game_running() -> bool {
     if !cfg!(target_os = "windows") {
         return false;
     }
-    Command::new("tasklist")
+    let mut command = Command::new("tasklist");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // Keep the periodic presence check from opening a console.
+    }
+    command
         .args(["/FI", "IMAGENAME eq Wow.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()
@@ -2946,6 +2953,7 @@ fn main() {
             detect_game_path,
             choose_install_directory,
             launch_game,
+            is_game_running,
             verify_installation,
             repair_installation,
             extras::pause_download,

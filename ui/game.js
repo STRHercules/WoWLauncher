@@ -597,28 +597,36 @@ function gameStatusText(character) {
   return `Playing Esteria · Level ${character.level} ${character.race} · ${character.zone}`;
 }
 
-let discordKey = '';
 let discordSince = 0;
+let discordUpdating = false;
 
-function syncDiscord() {
+async function syncDiscord() {
+  if (discordUpdating) return;
   const settings = appState.settings;
   const character = appState.gamePresence;
-  const wanted = settings.discordPresence && settings.discordClientId && character;
-  const key = wanted ? `${character.level}|${character.race}|${character.zone}` : '';
-  if (key === discordKey) return;
-  discordKey = key;
+  const wanted = settings.discordPresence && settings.discordClientId && appState.gameRunning;
+  const details = wanted ? (character ? `Level ${character.level} ${character.race}` : 'Playing Esteria') : '';
+  const state = wanted ? (character?.zone || 'In the client') : '';
   if (!wanted && !discordSince) return;
   if (wanted && !discordSince) discordSince = Math.floor(Date.now() / 1000);
-  if (!wanted) discordSince = 0;
-  invokeTauri('set_discord_presence', {
-    clientId: settings.discordClientId,
-    details: wanted ? `Level ${character.level} ${character.race}` : '',
-    state: wanted ? character.zone : '',
-    started: discordSince
-  }).catch((error) => console.debug('Discord presence unavailable', error));
+  discordUpdating = true;
+  try {
+    await invokeTauri('set_discord_presence', {
+      clientId: settings.discordClientId,
+      details,
+      state,
+      started: wanted ? discordSince : 0
+    });
+    if (!wanted) discordSince = 0;
+  } catch (error) {
+    console.debug('Discord presence unavailable', error);
+  } finally {
+    discordUpdating = false;
+  }
 }
 
 async function refreshGamePresence() {
+  appState.gameRunning = await invokeTauri('is_game_running');
   if (!gameSession() || !appState.settings.gameApi) {
     appState.gamePresence = null;
   } else {
@@ -627,10 +635,10 @@ async function refreshGamePresence() {
       appState.gamePresence = payload.online ? payload.character : null;
     } catch (error) {
       console.debug('Could not read game presence', error);
-      return;
+      appState.gamePresence = null;
     }
   }
-  syncDiscord();
+  await syncDiscord();
   renderSocialPanel();
 }
 

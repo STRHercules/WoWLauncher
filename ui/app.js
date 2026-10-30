@@ -30,6 +30,7 @@ const appState = {
   verification: null,
   needsRepair: false,
   clientInstalled: false,
+  gameRunning: false,
   updateRunning: false,
   addonBusy: false,
   addons: [],
@@ -1342,6 +1343,8 @@ async function startGame(action) {
   try {
     if (action === 'minimize' || action === 'tray') await invokeTauri('apply_play_action', { action });
     const result = await invokeTauri('launch_game', { settings: appState.settings });
+    appState.gameRunning = true;
+    await syncDiscord();
     showToast(result === null ? 'Desktop launch hook is ready.' : 'Esteria has closed.');
   } catch (error) {
     showToast(String(error), 5200);
@@ -2812,6 +2815,7 @@ async function initializeDesktopState() {
       if (appState.activeView === 'community') await refreshCommunity();
     }, 20000);
     await Promise.all([
+      refreshGamePresence(),
       refreshRealmStatus(),
       refreshServerStatus(),
       refreshSocialSnapshot(),

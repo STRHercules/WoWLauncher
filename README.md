@@ -118,7 +118,7 @@ The Add-ons page installs and updates add-ons published by the server into `Inte
 - **Friends panel** (right): your profile, presence, friend list, search, requests and **Chats**. The tab on the panel's left edge **collapses** it to a thin strip (remembered between launches).
 - **Profile** (click your name): display name, presence (Online, Away, Do Not Disturb, Appear Offline), status message, bio, header image, favorite character, avatar (animated GIFs work), and the Esteria account sign-in. It shows *Linked to game account X · permanent* when linked.
 - **Chat** opens in its own window: one-to-one chats and group chats of up to 20 friends, with distinct incoming and outgoing sounds. Right-click a friend for profile, nickname, favorite and remove.
-- **While you play,** your profile and friends list show `Playing Esteria - Level 72 Vrykul - Elwynn Forest`, and Discord rich presence is shown when a Discord application ID is configured.
+- **While you play,** your profile and friends list show `Playing Esteria - Level 72 Vrykul - Elwynn Forest`. Discord activity starts when the client runs, with character details added when you are signed into a game account in the launcher.
 
 ### Notifications
 
