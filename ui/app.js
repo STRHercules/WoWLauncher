@@ -42,6 +42,7 @@ const appState = {
   featuredNewsUrl: '',
   showingAddons: false,
   activeView: 'home',
+  authenticated: false,
   social: null,
   socialSnapshot: null,
   accountFeed: null,
@@ -146,6 +147,7 @@ function setLauncherView(view = 'home') {
   $('.feed-section').hidden = !showHome;
   gameTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === view || (['addons', 'links', 'patchnotes', 'story'].includes(view) && tab.dataset.view === 'home')));
   $('#mainContent').scrollTop = 0;
+  if (view === 'account') { renderAccountPanel(); populateProfileForm(); }
 }
 
 function restoreMainView() {
@@ -372,11 +374,12 @@ function accountApiBase() {
 }
 
 async function accountRequest(path, { method = 'GET', body, token } = {}) {
-  const base = accountApiBase();
+  const base = token === '' ? String(appState.settings.accountApi || '').trim().replace(/\/+$/, '') : accountApiBase();
   if (!base) throw new Error('Set the Esteria account API address in settings first.');
   const authToken = token ?? accountSession()?.token;
   const response = await fetch(`${base}${path}`, {
     method,
+    signal: AbortSignal.timeout(30000),
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(authToken ? { authorization: `Bearer ${authToken}` } : {})
@@ -384,7 +387,16 @@ async function accountRequest(path, { method = 'GET', body, token } = {}) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.message || `Esteria account request failed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(payload?.message || `Esteria account request failed (${response.status}).`);
+    error.code = payload?.error;
+    error.status = response.status;
+    if (response.status === 401 && authToken === accountSession()?.token && !['/api/v2/account/login', '/api/v2/account/register', '/api/v2/account/password'].includes(path)) {
+      appState.authenticated = false;
+      syncAccountGate();
+    }
+    throw error;
+  }
   return payload;
 }
 
@@ -492,8 +504,9 @@ async function refreshAccountFeed({ publish = true } = {}) {
     return null;
   }
   const profile = appState.social?.profile || {};
+  const session = accountSession();
   try {
-    appState.accountFeed = await accountRequest('/api/v2/social/heartbeat', {
+    const feed = await accountRequest('/api/v2/social/heartbeat', {
       method: 'POST',
       body: publish
         ? {
@@ -503,6 +516,7 @@ async function refreshAccountFeed({ publish = true } = {}) {
           }
         : {}
     });
+    if (accountSession()?.token === session.token) appState.accountFeed = feed;
   } catch (error) {
     console.warn('Could not refresh the Esteria account feed', error);
   }
@@ -785,83 +799,117 @@ async function installLauncherUpdate() {
 
 $('#installLauncherUpdateButton').addEventListener('click', installLauncherUpdate);
 
-function renderAccountPanel() {
-  const session = accountSession();
-  const me = appState.accountFeed?.me || null;
-  const signedIn = Boolean(session);
-  $('#accountSignedOut').hidden = signedIn;
-  $('#accountSignedIn').hidden = !signedIn;
-  const name = signedIn ? me?.displayName || session.displayName || session.username : 'Not signed in';
-  $('#accountName').textContent = signedIn ? `${name} · @${session.username}` : 'Not signed in';
-  const linkedGame = signedIn ? me?.gameAccount : null;
-  $('#accountGameLink').textContent = !signedIn ? '' : linkedGame
-    ? `Linked to game account ${linkedGame} · permanent`
-    : 'Not linked to a game account yet. Sign in on the Game Account tab to link it.';
-  $('#accountGameLink').classList.toggle('is-linked', Boolean(linkedGame));
-  $('#accountHint').textContent = signedIn
-    ? 'Presence, friends, chats, and your profile picture live on the Esteria account service.'
-    : 'Create an Esteria account to share your presence, friends, and chat with other players.';
-  applyAvatar($('#accountAvatar'), signedIn && me ? absoluteAvatarUrl(me.avatarUrl) : '', signedIn ? String(name).slice(0, 2).toUpperCase() : '?');
+function syncAccountGate() {
+  const required = !appState.authenticated;
+  document.body.classList.toggle('auth-required', required);
+  $('#authScreen').hidden = !required;
+  $('.primary-shell').inert = required;
+  $('.social-panel').inert = required;
+  $('.primary-nav').inert = required;
 }
 
-async function signInAccount({ register = false } = {}) {
+function renderAccountPanel() {
+  const session = accountSession();
+  const me = appState.accountFeed?.me;
+  const name = me?.displayName || session?.displayName || session?.username || 'Your profile';
+  $('#accountName').textContent = name;
+  $('#accountGameLink').textContent = session && me?.gameAccount ? `@${session.username} · Game account ${me.gameAccount}` : '';
+  $('#accountHint').textContent = me?.statusMessage || 'One account for Esteria and the game.';
+  applyAvatar($('#accountAvatar'), absoluteAvatarUrl(me?.avatarUrl), name.slice(0, 2).toUpperCase());
+  const cover = $('#accountCover');
+  cover.replaceChildren();
+  if (me?.headerUrl) {
+    const image = document.createElement('img');
+    image.src = absoluteAvatarUrl(me.headerUrl);
+    image.alt = '';
+    cover.append(image);
+  }
+  syncAccountGate();
+}
+
+let authRegister = false;
+function setAuthMode(register) {
+  if (appState.accountBusy) return;
+  authRegister = register;
+  $('#authRegistration').hidden = !register;
+  $('#authLoginTab').setAttribute('aria-pressed', String(!register));
+  $('#authRegisterTab').setAttribute('aria-pressed', String(register));
+  $('#accountLoginButton').textContent = register ? 'Create account' : 'Sign in';
+  $('#authTitle').textContent = register ? 'Create your Esteria account' : 'Welcome to Esteria';
+  $('#authDescription').textContent = register ? 'Start your journey with one account for everything.' : 'Sign in with your game account to continue.';
+  $('#accountPasswordInput').autocomplete = register ? 'new-password' : 'current-password';
+  $('#accountPasswordInput').maxLength = register ? 16 : 128;
+  $('#accountConfirmInput').required = register;
+  $('#accountEmailInput').required = register;
+  $('#authError').hidden = true;
+}
+
+async function signInAccount() {
   if (appState.accountBusy) return;
   const username = $('#accountUsernameInput').value.trim();
   const password = $('#accountPasswordInput').value;
-  if (!username || !password) {
-    showToast('Enter your account name and password.');
-    return;
-  }
   const email = $('#accountEmailInput').value.trim();
-  if (register && appState.settings.gameApi && !email) {
-    showToast('Enter an email address to create your account.');
+  const errorNode = $('#authError');
+  const button = $('#accountLoginButton');
+  errorNode.hidden = true;
+  if (authRegister && password !== $('#accountConfirmInput').value) {
+    errorNode.textContent = 'The passwords do not match.';
+    errorNode.hidden = false;
     return;
   }
   appState.accountBusy = true;
+  button.disabled = true;
+  button.textContent = authRegister ? 'Creating account…' : 'Signing in…';
   try {
-    // Same name and password for the game; the game account is created first so a taken name fails early.
-    if (register && appState.settings.gameApi) await gameRegister(username, password, email);
-    const payload = await accountRequest(register ? '/api/v2/account/register' : '/api/v2/account/login', {
-      method: 'POST',
-      body: register
-        ? { username, password, displayName: appState.social?.profile?.displayName }
-        : { username, password }
+    const payload = await accountRequest(authRegister ? '/api/v2/account/register' : '/api/v2/account/login', {
+      method: 'POST', token: '',
+      body: { username, password, email,
+        legacyUsername: $('#authLegacy').open ? $('#legacyUsernameInput').value.trim() : '',
+        legacyPassword: $('#authLegacy').open ? $('#legacyPasswordInput').value : '' }
     });
-    const account = payload?.account || {};
-    const previous = appState.social?.profile || {};
+    const account = payload.account;
+    if (!payload.token || !payload.game?.token || !account?.gameAccount || account.gameAccount.toUpperCase() !== payload.game.username?.toUpperCase()) {
+      throw new Error('The account service needs the unified account update. Contact the server administrator.');
+    }
+    // Discard an older account's game session before persisting the new identity.
+    const favoriteCharacter = accountSession()?.username === account.username ? appState.social?.profile?.favoriteCharacter || '' : '';
+    setGameSession(null);
+    clearAccountContent();
     appState.social = await invokeTauri('save_account_session', {
-      session: {
-        token: payload.token,
-        username: account.username || username.toLowerCase(),
-        displayName: account.displayName || username,
-        apiBase: accountApiBase()
-      }
+      session: { token: payload.token, username: account.username, displayName: account.displayName, apiBase: String(appState.settings.accountApi).trim().replace(/\/+$/, '') }
     });
     appState.social = await invokeTauri('save_player_profile', {
-      profile: {
-        displayName: account.displayName || username,
-        presence: previous.presence || 'online',
-        statusMessage: account.statusMessage || '',
-        favoriteCharacter: previous.favoriteCharacter || ''
-      }
+      profile: { displayName: account.displayName, presence: account.explicitPresence || 'online',
+        statusMessage: account.statusMessage || '', bio: account.bio || '', favoriteCharacter }
     });
-    if (appState.settings.gameApi) {
-      await gameLogin(username, password).catch((error) => showToast(`Signed in, but the game account could not be linked: ${error}`, 6000));
-    }
-    $('#accountPasswordInput').value = '';
-    await refreshGamePresence();
-    await refreshAccountFeed();
-    await autoLinkGameProfile();
+    setGameSession({ ...payload.game, unified: true, apiBase: appState.settings.gameApi });
+    appState.accountFeed = { me: account, friends: [], incoming: [], outgoing: [] };
+    appState.accountThreads = {};
+    appState.authenticated = true;
+    for (const id of ['#accountPasswordInput', '#accountConfirmInput', '#legacyPasswordInput']) $(id).value = '';
     renderAccountPanel();
     renderSocialPanel();
-    showToast(register ? `Esteria account ${account.username} created.` : `Signed in as ${account.username}.`);
+    restoreMainView();
+    await Promise.all([refreshGamePresence(), refreshAccountFeed({ publish: false })]);
+    showToast(authRegister ? 'Account created. Welcome to Esteria!' : `Welcome back, ${account.displayName}.`);
   } catch (error) {
-    showToast(String(error), 5200);
+    errorNode.textContent = error.message || String(error);
+    errorNode.hidden = false;
+    if (error.code === 'legacy_profile') $('#authLegacy').open = true;
+  } finally {
+    appState.accountBusy = false;
+    button.disabled = false;
+    button.textContent = authRegister ? 'Create account' : 'Sign in';
   }
-  appState.accountBusy = false;
 }
 
 async function signOutAccount() {
+  if (appState.accountBusy) return;
+  appState.accountBusy = true;
+  let clearFailed = false;
+  $('#accountLoginButton').disabled = true;
+  appState.authenticated = false;
+  syncAccountGate();
   await gameSignOut();
   try {
     await accountRequest('/api/v2/account/logout', { method: 'POST', body: {} });
@@ -876,11 +924,18 @@ async function signOutAccount() {
     appState.social = await invokeTauri('clear_account_session');
   } catch (error) {
     console.warn('Could not clear the stored account session', error);
+    if (appState.social) appState.social.account = null;
+    clearFailed = true;
   }
   renderAccountPanel();
   renderSocialPanel();
   renderChatDialog();
-  showToast('Signed out of your Esteria account.');
+  appState.accountBusy = false;
+  $('#accountLoginButton').disabled = false;
+  setAuthMode(false);
+  $('#accountPasswordInput').value = '';
+  $('#accountUsernameInput').focus();
+  showToast(clearFailed ? 'Signed out, but the saved session could not be removed from disk. Check local storage permissions.' : 'Signed out of Esteria.', clearFailed ? 8000 : 2800);
 }
 
 async function uploadAccountAvatar() {
@@ -1170,10 +1225,13 @@ async function refreshCommunity() {
     feed.append(note);
     return;
   }
+  const token = accountSession().token;
   try {
     const payload = await accountRequest('/api/v2/social/posts?since=0');
+    if (accountSession()?.token !== token) return;
     appState.posts = Array.isArray(payload?.posts) ? payload.posts : [];
   } catch (error) {
+    if (accountSession()?.token !== token) return;
     appState.posts = [];
     console.warn('Could not load the community feed', error);
   }
@@ -1341,6 +1399,7 @@ async function chooseCloseAction(action) {
 }
 
 async function startGame(action) {
+  if (!appState.authenticated) return syncAccountGate();
   try {
     if (action === 'minimize' || action === 'tray') await invokeTauri('apply_play_action', { action });
     const result = await invokeTauri('launch_game', { settings: appState.settings });
@@ -1454,24 +1513,34 @@ async function loadSocialState() {
   return appState.social;
 }
 
-function openProfileDialog() {
+function populateProfileForm() {
   const profile = appState.social?.profile || {};
-  renderAccountPanel();
-  $('#profileNameInput').value = profile.displayName || 'Player';
-  $('#profilePresenceSelect').value = normalizePresence(profile.presence || 'online');
+  const me = appState.accountFeed?.me;
+  $('#profileNameInput').value = me?.displayName || profile.displayName || '';
+  $('#profilePresenceSelect').value = normalizePresence(profile.presence || me?.explicitPresence || 'online');
   $('#profileStatusInput').value = profile.statusMessage || '';
-  $('#profileBioInput').value = profile.bio || '';
+  $('#profileBioInput').value = me?.bio || profile.bio || '';
   $('#favoriteCharacterInput').value = profile.favoriteCharacter || '';
-  $('#profileBackdrop').hidden = false;
-  requestAnimationFrame(() => $('#profileNameInput').focus());
+  $('#profileSaveStatus').textContent = '';
 }
 
-function closeProfileDialog() {
-  $('#profileBackdrop').hidden = true;
+function openProfileDialog() {
+  document.body.classList.remove('mode-news', 'mode-community');
+  navButtons.forEach(item => item.classList.toggle('is-active', item.dataset.nav === 'games'));
+  setLauncherView('account');
+  refreshGameAccount();
+  $('#profileNameInput').focus();
 }
 
 async function saveProfile() {
+  const button = $('#saveProfileButton');
+  if (button.disabled) return;
+  button.disabled = true;
   try {
+    await accountRequest('/api/v2/account/profile', { method: 'POST', body: {
+      displayName: $('#profileNameInput').value.trim(), presence: $('#profilePresenceSelect').value,
+      statusMessage: $('#profileStatusInput').value.trim(), bio: $('#profileBioInput').value.trim()
+    } });
     appState.social = await invokeTauri('save_player_profile', {
       profile: {
         displayName: $('#profileNameInput').value.trim(),
@@ -1482,12 +1551,14 @@ async function saveProfile() {
       }
     });
     if (accountSession()) await refreshAccountFeed();
-    closeProfileDialog();
+    $('#profileSaveStatus').textContent = 'Changes saved';
     renderAccountPanel();
     renderSocialPanel();
     showToast('Profile and presence updated.');
   } catch (error) {
     showToast(String(error), 5200);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1713,10 +1784,7 @@ async function sendChatMessage(event) {
 }
 
 $('#profileButton').addEventListener('click', openProfileDialog);
-$('#closeProfileButton').addEventListener('click', closeProfileDialog);
-$('#cancelProfileButton').addEventListener('click', closeProfileDialog);
-$('#saveProfileButton').addEventListener('click', saveProfile);
-$('#profileBackdrop').addEventListener('click', (event) => { if (event.target === $('#profileBackdrop')) closeProfileDialog(); });
+$('#profileForm').addEventListener('submit', (event) => { event.preventDefault(); saveProfile(); });
 $('#socialSettingsButton').addEventListener('click', openSocialSettingsDialog);
 $('#closeSocialSettingsButton').addEventListener('click', closeSocialSettingsDialog);
 $('#cancelSocialSettingsButton').addEventListener('click', closeSocialSettingsDialog);
@@ -1735,13 +1803,21 @@ $('#removeChatFriendButton').addEventListener('click', () => {
 $('#closeChatButton').addEventListener('click', closeChatDialog);
 $('#chatBackdrop').addEventListener('click', (event) => { if (event.target === $('#chatBackdrop')) closeChatDialog(); });
 $('#chatForm').addEventListener('submit', sendChatMessage);
-$('#accountLoginButton').addEventListener('click', () => signInAccount());
-$('#accountRegisterButton').addEventListener('click', () => signInAccount({ register: true }));
+$('#accountAuthForm').addEventListener('submit', event => { event.preventDefault(); signInAccount(); });
+$('#authLoginTab').addEventListener('click', () => setAuthMode(false));
+$('#authRegisterTab').addEventListener('click', () => setAuthMode(true));
+$('#authSettingsButton').addEventListener('click', openSettings);
+$('#authShowPassword').addEventListener('click', () => {
+  const input = $('#accountPasswordInput');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('#authShowPassword').textContent = show ? 'Hide' : 'Show';
+  $('#authShowPassword').setAttribute('aria-pressed', String(show));
+});
 $('#accountLogoutButton').addEventListener('click', signOutAccount);
 $('#accountAvatarButton').addEventListener('click', uploadAccountAvatar);
 $('#accountAvatarClearButton').addEventListener('click', clearAccountAvatar);
-$('#accountPasswordInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') signInAccount(); });
-$('#accountUsernameInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') $('#accountPasswordInput').focus(); });
+$('#accountUsernameInput').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); $('#accountPasswordInput').focus(); } });
 $('#friendNameInput').addEventListener('input', () => {
   clearTimeout(discoverTimer);
   discoverTimer = setTimeout(() => searchPlayers($('#friendNameInput').value.trim()), 250);
@@ -2726,7 +2802,6 @@ window.addEventListener('keydown', (event) => {
   else if (!$('#chatBackdrop').hidden) closeChatDialog();
   else if (!$('#friendBackdrop').hidden) closeFriendDialog();
   else if (!$('#socialSettingsBackdrop').hidden) closeSocialSettingsDialog();
-  else if (!$('#profileBackdrop').hidden) closeProfileDialog();
   else if (!settingsBackdrop.hidden) closeSettings();
   else if (appState.activeView !== 'home') restoreMainView();
 });
@@ -2770,14 +2845,23 @@ async function initializeDesktopState() {
     updatePlayState();
     await loadSocialState();
     renderAccountPanel();
-    if (accountSession()) {
-      await refreshAccountFeed();
+    if (accountSession() && gameSession()?.unified) {
+      try {
+        const [profile, game] = await Promise.all([accountRequest('/api/v2/account/me'), gameRequest('me')]);
+        appState.authenticated = Boolean(profile.account?.gameAccount && profile.account.gameAccount.toUpperCase() === game.username?.toUpperCase());
+        appState.accountFeed = { me: profile.account, friends: [], incoming: [], outgoing: [] };
+      } catch (error) {
+        $('#authError').textContent = error.message || 'Sign in again to continue.';
+        $('#authError').hidden = false;
+      }
+      await refreshAccountFeed({ publish: false });
       appState.unreadByFriend = Object.fromEntries(
         (appState.accountFeed?.friends || []).map((friend) => [friend.username.toLowerCase(), Number(friend.unread) || 0])
       );
       appState.unreadTotal = Number(appState.accountFeed?.unread) || 0;
       renderSocialPanel();
     }
+    renderAccountPanel();
     if (window.__TAURI__?.event?.listen) {
       window.__TAURI__.event.listen('chat-thread', (event) => {
         appState.chatThread = event.payload?.friend || '';
@@ -2785,7 +2869,7 @@ async function initializeDesktopState() {
     }
     setInterval(async () => {
       await refreshGamePresence();
-      if (!accountSession()) return;
+      if (!appState.authenticated) return;
       const previousByFriend = appState.unreadByFriend || {};
       await refreshAccountFeed();
       const friends = appState.accountFeed?.friends || [];
@@ -2843,4 +2927,4 @@ async function initializeDesktopState() {
 
 registerPatchProgressListener();
 registerLauncherUpdateListener();
-initializeDesktopState();
+window.addEventListener('DOMContentLoaded', initializeDesktopState, { once: true });

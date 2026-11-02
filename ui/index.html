@@ -7,7 +7,7 @@
   <title>Esteria Launcher</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
-<body>
+<body class="auth-required">
   <div class="app-shell">
     <header class="titlebar" data-tauri-drag-region>
       <div class="titlebar-left" data-tauri-drag-region>
@@ -57,7 +57,7 @@
         </button>
         <button class="game-tab" id="armoryTabButton" type="button" aria-label="Armory" title="Armory" data-view="armory"><img src="./assets/tab-armory.png" alt="" /></button>
         <button class="game-tab" id="databaseTabButton" type="button" aria-label="World Database" title="World Database" data-view="database"><img src="./assets/tab-database.png" alt="" /></button>
-        <button class="game-tab" id="accountTabButton" type="button" aria-label="Game Account" title="Game Account" data-view="account"><img src="./assets/tab-account.png" alt="" /></button>
+        <button class="game-tab" id="accountTabButton" type="button" aria-label="Account" title="Account" data-view="account"><img src="./assets/tab-account.png" alt="" /></button>
         <button class="game-tab" id="statsTabButton" type="button" aria-label="Stats" title="Stats" data-view="stats"><img src="./assets/tab-stats.png" alt="" /></button>
         <button class="game-tab" id="imagesTabButton" type="button" aria-label="Images" title="Images" data-view="images"><img src="./assets/tab-images.png" alt="" /></button>
         <button class="game-tab" id="toolsTabButton" type="button" aria-label="Launcher Tools" title="Launcher Tools" data-view="tools"><img src="./assets/tab-tools.png" alt="" /></button>
@@ -258,41 +258,54 @@
           <section class="launcher-page" id="accountSection" hidden>
             <div class="launcher-page-toolbar">
               <div>
-                <h2>Game Account</h2>
-                <p>Your Esteria game account. The same name and password work in the launcher and in the game.</p>
+                <h2>Account</h2>
+                <p>Your profile, presence, characters and account security.</p>
               </div>
               <button type="button" class="page-action" id="refreshGameAccountButton">Refresh</button>
             </div>
-            <div class="game-account-auth" id="gameAuth">
-              <label for="gameUsernameInput">Account name</label>
-              <input id="gameUsernameInput" type="text" maxlength="17" autocomplete="username" spellcheck="false" placeholder="3-17 letters or numbers" />
-              <label for="gamePasswordInput">Password</label>
-              <input id="gamePasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="6-16 characters" />
-              <label for="gameEmailInput">Email (only when creating an account)</label>
-              <input id="gameEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" />
-              <div class="account-actions">
-                <button class="dialog-primary" id="gameLoginButton" type="button">Sign in</button>
-                <button class="dialog-secondary" id="gameRegisterButton" type="button">Create game account</button>
+            <div class="account-profile" id="accountProfile">
+              <div class="account-cover" id="accountCover"></div>
+              <div class="account-identity">
+                <span class="account-avatar" id="accountAvatar">?</span>
+                <div class="account-copy"><h2 id="accountName">Your profile</h2><span id="accountGameLink"></span><p id="accountHint">One account for Esteria and the game.</p></div>
+                <button class="dialog-secondary" id="accountLogoutButton" type="button">Sign out</button>
               </div>
+              <form id="profileForm" class="account-profile-form">
+                <div class="profile-fields">
+                  <label for="profileNameInput">Display name</label>
+                  <input id="profileNameInput" type="text" maxlength="32" autocomplete="off" required />
+                  <label for="profilePresenceSelect">Presence</label>
+                  <select id="profilePresenceSelect" class="dialog-select">
+                    <option value="online">Online</option>
+                    <option value="away">Away</option>
+                    <option value="dnd">Do not disturb</option>
+                    <option value="offline">Appear offline</option>
+                  </select>
+                  <label for="profileStatusInput">Status message</label>
+                  <input id="profileStatusInput" type="text" maxlength="120" placeholder="What are you up to?" autocomplete="off" />
+                  <label for="profileBioInput">Bio</label>
+                  <textarea id="profileBioInput" rows="3" maxlength="400" placeholder="Tell players about your characters and playstyle"></textarea>
+                  <label for="favoriteCharacterInput">Favorite character</label>
+                  <input id="favoriteCharacterInput" type="text" maxlength="32" placeholder="Character name" autocomplete="off" />
+                </div>
+                <aside class="profile-appearance">
+                  <h3>Profile appearance</h3>
+                  <p>Your picture and header appear on your profile and in the community.</p>
+                  <div class="account-actions">
+                    <button class="dialog-secondary" id="accountAvatarButton" type="button">Change picture</button>
+                    <button class="field-button" id="accountAvatarClearButton" type="button">Remove picture</button>
+                  </div>
+                  <p>Profile header</p>
+                  <div class="header-actions">
+                    <button class="field-button" id="headerImageButton" type="button">Set header image</button>
+                    <button class="field-button" id="headerClearButton" type="button">Remove header</button>
+                  </div>
+                </aside>
+                <div class="profile-save"><span id="profileSaveStatus" role="status"></span><button class="dialog-primary" id="saveProfileButton" type="submit">Save profile</button></div>
+              </form>
             </div>
             <div class="game-account-manage" id="gameManage" hidden>
-              <div class="ga-card ga-header">
-                <div>
-                  <small>Signed in as</small>
-                  <strong id="gameAccountName">-</strong>
-                </div>
-                <button class="dialog-danger" type="button" id="gameLogoutButton">Sign out</button>
-              </div>
-
-              <div class="ga-card ga-link" id="gameLinkCard">
-                <div>
-                  <small>Esteria social profile</small>
-                  <strong id="gameLinkTitle">Not linked</strong>
-                  <span id="gameLinkNote"></span>
-                </div>
-                <div class="char-actions" id="gameLinkActions"></div>
-              </div>
-
+              <div class="account-section-heading"><h2>Game account</h2><span id="gameAccountName"></span></div>
               <div class="ga-heading-row">
                 <h3 class="ga-heading">Characters <span class="ga-count" id="gameCharCount"></span></h3>
               </div>
@@ -345,13 +358,17 @@
               <div class="game-account-forms">
                 <div class="ga-card">
                   <strong>Change password</strong>
+                  <label for="gameCurrentPasswordInput">Current password</label>
                   <input id="gameCurrentPasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="Current password" />
+                  <label for="gameNewPasswordInput">New password</label>
                   <input id="gameNewPasswordInput" type="password" maxlength="16" autocomplete="new-password" placeholder="New password (6-16)" />
                   <button class="dialog-secondary" id="gameChangePasswordButton" type="button">Update password</button>
                 </div>
                 <div class="ga-card">
                   <strong>Change email</strong>
+                  <label for="gameEmailPasswordInput">Password</label>
                   <input id="gameEmailPasswordInput" type="password" maxlength="16" autocomplete="current-password" placeholder="Password" />
+                  <label for="gameNewEmailInput">New email address</label>
                   <input id="gameNewEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" placeholder="New email" />
                   <button class="dialog-secondary" id="gameChangeEmailButton" type="button">Update email</button>
                 </div>
@@ -455,7 +472,7 @@
 
     <aside class="social-panel">
       <button class="social-toggle" id="socialToggle" type="button" aria-label="Collapse friends panel" title="Collapse friends panel">&raquo;</button>
-      <button class="profile-row profile-row-button" id="profileButton" type="button" aria-label="Edit player profile and presence">
+      <button class="profile-row profile-row-button" id="profileButton" type="button" aria-label="Open your account">
         <div class="avatar" id="profileAvatar">P</div>
         <div class="profile-copy">
           <strong id="profileDisplayName">Player</strong>
@@ -512,6 +529,46 @@
       </div>
     </section>
   </div>
+
+  <main class="auth-screen" id="authScreen" aria-labelledby="authTitle">
+    <div class="auth-art" aria-hidden="true">
+      <div class="auth-art-copy"><h2>A world to call home.</h2><p>Your characters. Your friends. Your next adventure.</p></div>
+    </div>
+    <section class="auth-content">
+      <img class="auth-mark" src="./assets/esteria-icon.png" alt="Esteria" />
+      <h1 id="authTitle">Welcome to Esteria</h1>
+      <p id="authDescription">Sign in with your game account to continue.</p>
+      <div class="auth-tabs" role="group" aria-label="Account access">
+        <button id="authLoginTab" type="button" aria-pressed="true">Sign in</button>
+        <button id="authRegisterTab" type="button" aria-pressed="false">Create account</button>
+      </div>
+      <form id="accountAuthForm">
+        <label for="accountUsernameInput">Account name</label>
+        <input id="accountUsernameInput" type="text" maxlength="17" autocomplete="username" spellcheck="false" required />
+        <div class="auth-password-label"><label for="accountPasswordInput">Password</label><button id="authShowPassword" class="text-button" type="button" aria-pressed="false">Show</button></div>
+        <input id="accountPasswordInput" type="password" maxlength="128" autocomplete="current-password" required />
+        <div id="authRegistration" hidden>
+          <label for="accountConfirmInput">Confirm password</label>
+          <input id="accountConfirmInput" type="password" maxlength="16" autocomplete="new-password" />
+          <label for="accountEmailInput">Email address</label>
+          <input id="accountEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" />
+          <p class="auth-field-note">Account name: 3-17 letters or numbers. Password: 6-16 characters.</p>
+        </div>
+        <details id="authLegacy">
+          <summary>Already have a separate launcher profile?</summary>
+          <p>Verify it once to keep your friends, chats and profile. Enter your game account credentials above.</p>
+          <label for="legacyUsernameInput">Previous launcher account name</label>
+          <input id="legacyUsernameInput" autocomplete="off" maxlength="20" />
+          <label for="legacyPasswordInput">Previous launcher password</label>
+          <input id="legacyPasswordInput" type="password" autocomplete="off" maxlength="128" />
+        </details>
+        <p class="auth-error" id="authError" role="alert" hidden></p>
+        <button class="dialog-primary auth-submit" id="accountLoginButton" type="submit">Sign in</button>
+      </form>
+      <p class="auth-shared-note">One account for the launcher and World of Warcraft: Esteria.</p>
+      <button class="text-button auth-settings" id="authSettingsButton" type="button">Connection settings</button>
+    </section>
+  </main>
 
   <div class="settings-backdrop" id="settingsBackdrop" hidden>
     <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -612,71 +669,6 @@
       <div class="dialog-actions">
         <button class="dialog-secondary" id="cancelSettingsButton" type="button">Cancel</button>
         <button class="dialog-primary" id="saveSettingsButton" type="button">Save</button>
-      </div>
-    </section>
-  </div>
-
-  <div class="settings-backdrop" id="profileBackdrop" hidden>
-    <section class="settings-dialog social-dialog" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
-      <div class="dialog-header">
-        <h2 id="profileDialogTitle">Profile and presence</h2>
-        <button id="closeProfileButton" type="button" aria-label="Close profile">×</button>
-      </div>
-      <div class="dialog-body">
-        <label for="profileNameInput">Display name</label>
-        <input id="profileNameInput" type="text" maxlength="32" autocomplete="off" />
-        <label for="profilePresenceSelect">Presence</label>
-        <select id="profilePresenceSelect" class="dialog-select">
-          <option value="online">Online</option>
-          <option value="away">Away</option>
-          <option value="dnd">Do not disturb</option>
-          <option value="offline">Appear offline</option>
-        </select>
-        <label for="profileStatusInput">Status message</label>
-        <input id="profileStatusInput" type="text" maxlength="120" placeholder="What are you up to?" autocomplete="off" />
-        <label for="profileBioInput">Bio</label>
-        <textarea id="profileBioInput" rows="3" maxlength="400" placeholder="Tell players about your characters and playstyle"></textarea>
-        <label>Profile header</label>
-        <div class="header-actions">
-          <button class="field-button" id="headerImageButton" type="button">Set header image</button>
-          <button class="field-button" id="headerClearButton" type="button">Remove header</button>
-        </div>
-        <label for="favoriteCharacterInput">Favorite character</label>
-        <input id="favoriteCharacterInput" type="text" maxlength="32" placeholder="Character name" autocomplete="off" />
-      </div>
-
-      <div class="account-panel">
-        <div class="account-head">
-          <span class="account-avatar" id="accountAvatar">?</span>
-          <div class="account-copy">
-            <strong id="accountName">Not signed in</strong>
-            <small class="game-link-badge" id="accountGameLink"></small>
-<small id="accountHint">Create an Esteria account to share your presence, friends, and chat with other players.</small>
-          </div>
-        </div>
-        <div class="account-signed-out" id="accountSignedOut">
-          <label for="accountUsernameInput">Account name</label>
-          <input id="accountUsernameInput" type="text" maxlength="20" autocomplete="username" spellcheck="false" placeholder="3-20 letters, numbers, dot, dash, underscore" />
-          <label for="accountPasswordInput">Password</label>
-          <input id="accountPasswordInput" type="password" maxlength="128" autocomplete="current-password" />
-          <label for="accountEmailInput">Email (needed to create an account)</label>
-          <input id="accountEmailInput" type="email" maxlength="120" autocomplete="email" spellcheck="false" />
-          <div class="account-actions">
-            <button class="dialog-primary" id="accountLoginButton" type="button">Sign in</button>
-            <button class="dialog-secondary" id="accountRegisterButton" type="button">Create account</button>
-          </div>
-        </div>
-        <div class="account-signed-in" id="accountSignedIn" hidden>
-          <div class="account-actions">
-            <button class="dialog-secondary" id="accountAvatarButton" type="button">Change picture</button>
-            <button class="dialog-secondary" id="accountAvatarClearButton" type="button">Remove picture</button>
-            <button class="dialog-danger" id="accountLogoutButton" type="button">Sign out</button>
-          </div>
-        </div>
-      </div>
-      <div class="dialog-actions">
-        <button class="dialog-secondary" id="cancelProfileButton" type="button">Cancel</button>
-        <button class="dialog-primary" id="saveProfileButton" type="button">Save</button>
       </div>
     </section>
   </div>

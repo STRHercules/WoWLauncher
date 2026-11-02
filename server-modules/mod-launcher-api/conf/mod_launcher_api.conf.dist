@@ -15,6 +15,11 @@ LauncherApi.Enable = 0
 LauncherApi.Bind = "127.0.0.1"
 LauncherApi.Port = 8095
 
+# Exact IP of a trusted CDN/reverse proxy allowed to send X-Launcher-Client-IP for
+# account rate limits. Leave empty for direct connections. For a local CDN, use
+# "127.0.0.1" (or its actual container IP). Never use a public client IP here.
+LauncherApi.TrustedProxy = ""
+
 #
 #    LauncherApi.Tls.Cert / LauncherApi.Tls.Key
 #        Description: PEM certificate chain and private key. Leave empty for plain HTTP.

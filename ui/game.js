@@ -30,11 +30,12 @@ function setGameSession(session) {
 }
 
 async function gameRequest(path, { method = 'GET', body } = {}) {
-  const base = String(appState.settings.gameApi || '').trim().replace(/\/+$/, '');
+  const base = String(gameSession()?.apiBase || appState.settings.gameApi || '').trim().replace(/\/+$/, '');
   if (!base) throw new Error('Set the game server API address in settings first.');
   const token = gameSession()?.token;
   const response = await fetch(`${base}/launcher/v1/${path}`, {
     method,
+    signal: AbortSignal.timeout(15000),
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {})
@@ -44,21 +45,13 @@ async function gameRequest(path, { method = 'GET', body } = {}) {
     throw new Error(`Cannot reach the game server at ${base}. Check the Game server API address in settings and that the server's launcher module is running.`);
   });
   const payload = await response.json().catch(() => null);
-  if (response.status === 401 && token && path !== 'login') {
+  if (response.status === 401 && token && token === gameSession()?.token && !['login', 'password', 'email'].includes(path)) {
     setGameSession(null);
+    appState.authenticated = false;
+    syncAccountGate();
     renderGameAccount();
   }
   if (!response.ok) throw new Error(payload?.message || `Game server request failed (${response.status}).`);
-  return payload;
-}
-
-async function gameRegister(username, password, email) {
-  await gameRequest('register', { method: 'POST', body: { username, password, email } });
-}
-
-async function gameLogin(username, password) {
-  const payload = await gameRequest('login', { method: 'POST', body: { username, password } });
-  setGameSession({ token: payload.token, username: payload.username });
   return payload;
 }
 
@@ -66,30 +59,39 @@ async function gameSignOut() {
   if (gameSession()) await gameRequest('logout', { method: 'POST', body: {} }).catch(() => {});
   setGameSession(null);
   appState.gamePresence = null;
+  clearAccountContent();
   syncDiscord();
   renderGameAccount();
+}
+
+function clearAccountContent() {
+  charView.characters = [];
+  statsView.characters = [];
+  statsView.account = null;
+  renderStats();
+  appState.posts = [];
+  appState.postMedia = null;
+  $('#postBodyInput').value = '';
+  for (const id of ['#gameCharacters', '#gameDeleted', '#gameServices', '#postFeed']) $(id).replaceChildren();
 }
 
 // ---- Account page -----------------------------------------------------------------------------------------------
 
 function renderGameAccount() {
   const session = gameSession();
-  $('#gameAuth').hidden = Boolean(session);
   $('#gameManage').hidden = !session;
-  if (session) $('#gameAccountName').textContent = session.username;
-  else if (!$('#gameUsernameInput').value) $('#gameUsernameInput').value = accountSession()?.username || '';
-  renderGameLink();
+  $('#gameAccountName').textContent = session?.username || '';
 }
 
 async function refreshGameAccount() {
   renderGameAccount();
   if (!gameSession()) return;
+  const token = gameSession().token;
   try {
     const [info, list] = await Promise.all([gameRequest('info'), gameRequest('characters')]);
+    if (gameSession()?.token !== token) return;
     renderCharacters(list, info);
     if (accountSession() && !appState.accountFeed) await refreshAccountFeed().catch(() => {});
-    await autoLinkGameProfile();
-    renderGameLink();
   } catch (error) {
     showToast(String(error), 5200);
   }
@@ -374,24 +376,6 @@ function renderServices(characters, info) {
   draw();
 }
 
-async function gameAuthSubmit(register) {
-  const username = $('#gameUsernameInput').value.trim();
-  const password = $('#gamePasswordInput').value;
-  const email = $('#gameEmailInput').value.trim();
-  if (!username || !password) return showToast('Enter your account name and password.');
-  if (register && !email) return showToast('Enter an email address to create an account.');
-  try {
-    if (register) await gameRegister(username, password, email);
-    await gameLogin(username, password);
-    $('#gamePasswordInput').value = '';
-    showToast(register ? 'Game account created.' : 'Signed in to your game account.');
-    await refreshGameAccount();
-    refreshGamePresence();
-  } catch (error) {
-    showToast(String(error), 5200);
-  }
-}
-
 async function gameChangeSecret(path, body, clear, done) {
   try {
     await gameRequest(path, { method: 'POST', body });
@@ -404,23 +388,24 @@ async function gameChangeSecret(path, body, clear, done) {
   }
 }
 
-// Same name and password for the game and the Esteria social account, so a game password change has to follow.
 async function changeGamePassword() {
-  const current = $('#gameCurrentPasswordInput').value;
-  const next = $('#gameNewPasswordInput').value;
-  const changed = await gameChangeSecret('password', { current, new: next }, ['#gameCurrentPasswordInput', '#gameNewPasswordInput'], 'Game password updated.');
-  if (!changed || !accountSession()) return;
+  const button = $('#gameChangePasswordButton');
+  button.disabled = true;
   try {
-    await accountRequest('/api/v2/account/password', { method: 'POST', body: { current, new: next } });
-    showToast('Game and Esteria account passwords updated.', 5200);
+    await accountRequest('/api/v2/account/password', { method: 'POST', body: {
+      current: $('#gameCurrentPasswordInput').value, new: $('#gameNewPasswordInput').value
+    } });
+    $('#gameCurrentPasswordInput').value = '';
+    $('#gameNewPasswordInput').value = '';
+    await signOutAccount();
+    showToast('Password updated for the game and launcher. Sign in with your new password.', 6500);
   } catch (error) {
-    showToast('Game password updated, but your Esteria social account kept its old password (it was different): ' + (error.message || error), 8000);
+    showToast(error.message || String(error), 5200);
+  } finally {
+    button.disabled = false;
   }
 }
 
-$('#gameLoginButton').addEventListener('click', () => gameAuthSubmit(false));
-$('#gameRegisterButton').addEventListener('click', () => gameAuthSubmit(true));
-$('#gameLogoutButton').addEventListener('click', gameSignOut);
 $('#refreshGameAccountButton').addEventListener('click', refreshGameAccount);
 $('#gameChangePasswordButton').addEventListener('click', changeGamePassword);
 $('#gameChangeEmailButton').addEventListener('click', () =>
@@ -627,7 +612,7 @@ async function syncDiscord() {
 
 async function refreshGamePresence() {
   appState.gameRunning = await invokeTauri('is_game_running');
-  if (!gameSession() || !appState.settings.gameApi) {
+  if (!appState.authenticated || !gameSession() || !appState.settings.gameApi) {
     appState.gamePresence = null;
   } else {
     try {

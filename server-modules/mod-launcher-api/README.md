@@ -16,6 +16,9 @@ No SQL and no extra tables. Services reuse the core `at_login` flags, delete/res
 2. Re-run CMake and rebuild worldserver.
 3. Copy `conf/mod_launcher_api.conf.dist` to `mod_launcher_api.conf` next to `worldserver.conf`, set `LauncherApi.Enable = 1`.
 4. Open the port (default `8095`). For public servers either set `LauncherApi.Tls.Cert/Key` or put Caddy/nginx with HTTPS in front and keep `Bind = 127.0.0.1`.
+5. For unified launcher accounts, set the CDN's `GAME_API_URL` to this API and set `LauncherApi.TrustedProxy` to the CDN's exact transport IP (for example `127.0.0.1` for a local service). Rebuild the module with `ClientAddress.h`. The CDN supplies `X-Launcher-Client-IP` from its observed client address, so players retain separate registration and login quotas. The default empty setting ignores all forwarded addresses.
+
+If a public reverse proxy also connects from that trusted IP, it must overwrite `X-Launcher-Client-IP` with the observed client address or remove the header. Never forward a player's value unchanged. If the CDN itself is behind a proxy, set `CDN_TRUSTED_PROXIES` to that proxy's exact IPs so Express can derive `req.ip` safely.
 
 Requires an AzerothCore build with Boost.Beast and OpenSSL (any current master).
 
@@ -43,5 +46,5 @@ JSON in/out under `/launcher/v1/`. `login` returns a bearer token; send it as `A
 ## Limits
 
 - Services are free. Charge for them with your own economy module if you want.
-- Throttling is per connecting IP (5 registrations/hour, 10 failed logins/10 min); behind a reverse proxy that is the proxy's IP.
+- Throttling is per connecting IP (5 registrations/hour, 10 failed logins/10 min), or per forwarded client address only when the transport peer exactly matches `LauncherApi.TrustedProxy`. Public clients cannot select their own quota key.
 - Tokens live in memory; a worldserver restart signs launchers out.

@@ -1,6 +1,7 @@
 // mod-launcher-api: HTTP API for the Esteria launcher (account creation, character management, presence).
 // HTTP threads only parse and authenticate; every game or database action is queued to the world thread.
 #include "AccountMgr.h"
+#include "ClientAddress.h"
 #include "ArenaTeamMgr.h"
 #include "CalendarMgr.h"
 #include "CharacterCache.h"
@@ -61,6 +62,7 @@ namespace
         std::string cert;
         std::string key;
         bool registration = true;
+        std::string trustedProxy;
         uint32 tokenHours = 168;
         bool charDelete = true;
         bool rename = true;
@@ -144,6 +146,7 @@ namespace
             next.key = sConfigMgr->GetOption<std::string>("LauncherApi.Tls.Key", "");
             next.registration = sConfigMgr->GetOption<bool>("LauncherApi.AllowRegistration", true);
             next.tokenHours = sConfigMgr->GetOption<uint32>("LauncherApi.TokenHours", 168);
+            next.trustedProxy = sConfigMgr->GetOption<std::string>("LauncherApi.TrustedProxy", "");
             next.charDelete = sConfigMgr->GetOption<bool>("LauncherApi.Character.Delete", true);
             next.rename = sConfigMgr->GetOption<bool>("LauncherApi.Service.Rename", true);
             next.customize = sConfigMgr->GetOption<bool>("LauncherApi.Service.Customize", true);
@@ -362,9 +365,9 @@ namespace
             if (get && (route == "armory" || route == "database"))
                 return Lookup(route, std::string(request.target()), ip, s);
             if (post && route == "register")
-                return Register(body, ip, s);
+                return Register(body, LauncherClientAddress(ip, s.trustedProxy, std::string(request["X-Launcher-Client-IP"])), s);
             if (post && route == "login")
-                return Login(body, ip, s);
+                return Login(body, LauncherClientAddress(ip, s.trustedProxy, std::string(request["X-Launcher-Client-IP"])), s);
 
             std::string header(request[http::field::authorization]);
             uint32 account = Authenticate(header.rfind("Bearer ", 0) == 0 ? header.substr(7) : std::string());

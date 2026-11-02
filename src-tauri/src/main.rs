@@ -1160,7 +1160,7 @@ where
             };
 
             if let Some(expected) = expected_size {
-                if resume_from == expected {
+                if destination.is_file() && resume_from == expected {
                     on_file_bytes(resume_from);
                     return Ok(resume_from);
                 }
@@ -3159,6 +3159,42 @@ mod tests {
         fs::rename(&destination, &final_path).expect("install payload");
         let mut cache = HashMap::new();
         assert!(file_matches(&client, file, &mut cache).await.expect("verify copied file"));
+    }
+
+    #[tokio::test]
+    async fn remote_empty_download_creates_missing_file() {
+        let temp = tempdir().expect("tempdir");
+        let destination = temp.path().join("Packs/writhing-brood/equipment.csv.esteria-download");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("server address");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut request = [0_u8; 4096];
+            socket.read(&mut request).await.expect("read request");
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .expect("write empty response");
+        });
+
+        let url = Url::parse(&format!("http://{address}/equipment.csv")).expect("url");
+        let downloaded = copy_or_download_resumable(
+            DownloadSource::Remote(url),
+            &destination,
+            Some(0),
+            |_| {},
+        )
+        .await
+        .expect("download empty file");
+        assert_eq!(downloaded, 0);
+        assert!(destination.is_file(), "empty download must create the temporary file");
+        assert_eq!(
+            sha256_file(&destination).await.expect("hash empty download"),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        server.await.expect("server task");
     }
 
     #[tokio::test]

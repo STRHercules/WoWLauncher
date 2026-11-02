@@ -2,7 +2,7 @@
 
 ![Launcher](https://raw.githubusercontent.com/STRHercules/WoWLauncher/refs/heads/main/assets/pics/Previews/launcher.png)
 
-A Battle.net-style desktop launcher for **Esteria**, a custom World of Warcraft 3.3.5a server. It installs and repairs the game client, launches it, manages add-ons, and gives players a game account page, character stats, an armory, a world database, screenshots, news, patch notes and a friends/chat network, all in one window.
+A Battle.net-style desktop launcher for **Esteria**, a custom World of Warcraft 3.3.5a server. It installs and repairs the game client, launches it, manages add-ons, and gives players a unified Account page, character stats, an armory, a world database, screenshots, news, patch notes and a friends/chat network, all in one window.
 
 Built with **Tauri 2** (Rust), plain HTML/CSS/JavaScript, and a small **AzerothCore module** that lets the launcher talk to the game server safely.
 
@@ -47,7 +47,7 @@ Built with **Tauri 2** (Rust), plain HTML/CSS/JavaScript, and a small **AzerothC
 
 - The **CDN service** serves everything static or social: the game client, add-ons, launcher updates, news, patch notes, and the Esteria *social* accounts (friends, chat, community feed, avatars).
 - The **game server module** runs inside the worldserver, so it can read the real databases without handing credentials to anything else. It powers the game account, characters, stats, Armory and World Database.
-- The launcher talks to both. A player's Esteria social profile is linked permanently to their game account.
+- AzerothCore is the login authority. The CDN verifies game credentials and returns a launcher session plus a game session, keeping social profiles and history under their existing IDs.
 
 ---
 
@@ -77,15 +77,18 @@ An optional **Client download link** (in settings) lets you seed a fresh install
 - When the game closes, the launcher comes back by itself.
 - The window's close button works the same way: *Close*, *Minimize*, or *Send to tray* (remembered under settings). With *Send to tray* the launcher keeps running in the system tray; click the tray icon to bring it back, or use its menu to quit.
 
-### Game Account
+### Sign in and Account
 
-The account tab (the portrait icon in the game strip). Sign in with your game account name and password, or **Create game account**. The same name and password also create/sign in your Esteria social account.
+The launcher opens to an Esteria welcome screen until you sign in. Use your existing **game account** credentials, or choose **Create account** with an account name, password, password confirmation and email. Registration creates a normal AzerothCore account, then signs you into the launcher with the same credentials. Passwords are never saved by the launcher; sessions are retained and verified on restart. A worldserver restart or expired session returns you to sign-in.
 
-- **Your Esteria profile card** shows whether your social profile is linked to this game account. The link is **permanent**; it is made automatically the first time you are signed into both, and **Unlink** removes it.
+The **Account** tab replaces Game Account. Clicking your name in the friends panel also opens it.
+
+- **Profile and presence:** edit your display name, status, bio, presence, favorite character, picture and header. Your header and picture appear in the profile preview.
+- **Existing profiles:** a linked profile keeps its ID, friends, messages and media, even if its old launcher name differs from its game name. An unlinked profile with the same name migrates automatically when both passwords match. If you only have a launcher account, Create account can create its game account and retain the profile. To preserve a differently named profile or verify a different old password, expand **Already have a separate launcher profile?** on either form. Name collisions never overwrite an unverified profile. After migration, use only your game password; profiles cannot be detached or reassigned.
 - **Characters** are shown as cards with their real in-game **portraits**. With a large roster use the search box (name, race, class, zone, guild), the class and status filters (online, max level, still leveling, pending service, in a guild, idle 30+ days), the sort menu (level, name, class, zone, oldest) and the card/compact-list toggle. Large rosters load 48 at a time.
 - **Services:** press **Services** on a character, or pick one in the *Apply to* menu, to start a Rename, Faction change, Race change or Re-customize. The service finishes the next time you pick that character at the in-game character screen; the character must be logged out.
 - **Delete / Restore:** deleting is a soft delete. The character moves to *Deleted characters*, where **Restore** brings it back (needs a free slot and an unused name). Deleted characters are removed for good after the server's retention period (`CharDelete.KeepDays`, 30 by default).
-- **Account security:** change your password (it also updates your Esteria social password if they match) and your email.
+- **Account security:** change your shared game/launcher password or game email. Password changes revoke launcher sessions and return you to sign-in.
 
 ### Stats
 
@@ -116,7 +119,7 @@ The Add-ons page installs and updates add-ons published by the server into `Inte
 - **Patch Notes** (sidebar): a rich list of releases, newest first, with tag filters (Feature, Fix, Server, ...). The newest three are open; click a release to expand or collapse it.
 - **Community feed** (top navigation): posts, screenshots and clips shared with your friends only.
 - **Friends panel** (right): your profile, presence, friend list, search, requests and **Chats**. The tab on the panel's left edge **collapses** it to a thin strip (remembered between launches).
-- **Profile** (click your name): display name, presence (Online, Away, Do Not Disturb, Appear Offline), status message, bio, header image, favorite character, avatar (animated GIFs work), and the Esteria account sign-in. It shows *Linked to game account X · permanent* when linked.
+- **Profile** (click your name): opens the Account tab with display name, presence (Online, Away, Do Not Disturb, Appear Offline), status message, bio, header image, favorite character and avatar (animated GIFs work).
 - **Chat** opens in its own window: one-to-one chats and group chats of up to 20 friends, with distinct incoming and outgoing sounds. Right-click a friend for profile, nickname, favorite and remove.
 - **While you play,** your profile and friends list show `Playing Esteria - Level 72 Vrykul - Elwynn Forest`. Discord activity starts when the client runs, with character details added when you are signed into a game account in the launcher.
 
@@ -368,14 +371,13 @@ GET  /launcher-updates/latest.json
 Esteria account and social routes (bearer token after login):
 
 ```text
-POST   /api/v2/account/register        { username, password, displayName? }
+POST   /api/v2/account/register        { username, password, email }
 POST   /api/v2/account/login           { username, password }
 POST   /api/v2/account/logout
 GET    /api/v2/account/me
 POST   /api/v2/account/profile         { displayName?, statusMessage?, presence?, bio? }
 POST   /api/v2/account/password        { current, new }
-POST   /api/v2/account/game-link       { gameToken }      links this profile to the signed-in game account
-DELETE /api/v2/account/game-link                          unlinks it
+POST/DELETE /api/v2/account/game-link                     retired; returns 409
 PUT    /api/v2/account/avatar          { mimeType, dataBase64 }
 DELETE /api/v2/account/avatar
 PUT    /api/v2/account/header          { mimeType, dataBase64 }
@@ -392,7 +394,15 @@ GET    /api/v2/social/groups           POST /api/v2/social/groups { name, member
 GET    /api/v2/social/posts?since=<id> POST /api/v2/social/posts { body, mimeType?, dataBase64? }
 ```
 
-Profile links are verified server-side: the CDN asks the game server's launcher API who owns the supplied game token, so a client can never claim an account name. A game account can link to only one profile, and a profile to only one game account, until unlinked. Passwords are stored as scrypt hashes; avatars accept PNG, JPEG, WebP and GIF.
+Registration and login are verified server-side through the configured `GAME_API_URL` (default `http://127.0.0.1:8095`). Both return `{account, token, game: {username, token}}`; the launcher must receive both sessions before opening the main UI. The server owns this URL; launchers cannot supply an upstream origin. Login also accepts optional `legacyUsername` and `legacyPassword` for a one-time migration. Migrated profiles no longer store an independent launcher password hash. Existing social IDs, relationships and media remain intact; pre-migration sessions are revoked when a profile migrates. Avatars accept PNG, JPEG, WebP and GIF.
+
+Before distributing the launcher, rebuild `mod-launcher-api` with the updated source and set `LauncherApi.TrustedProxy` to the CDN's exact transport IP. Deploy the updated CDN routes with `GAME_API_URL` pointing at that module. This preserves per-player game registration/login quotas when authentication passes through the CDN. Without the trusted-proxy setting, all launcher users share the CDN's five-registrations-per-hour limit. If the CDN is behind a reverse proxy, configure its exact IPs in `CDN_TRUSTED_PROXIES`; public clients' forwarding headers are otherwise ignored. Any public proxy sharing the module's trusted transport IP must overwrite or strip `X-Launcher-Client-IP`, never forward it unchanged.
+
+Restart the CDN process only after validating the source and backing up its existing data directory. Do not run two processes against the same social store. No database schema migration is required. Use HTTPS for the public account and game APIs; the existing HTTP defaults do not encrypt credentials.
+
+If game registration succeeds but profile provisioning fails, the response says the game account was created. Choose **Sign in** with the same credentials to finish provisioning; do not create a second account. The account flow fails closed while the game account service is unavailable.
+
+Run `npm run selftest:account` and `npm run selftest:social` from `G:\CDN\server`. These use isolated stores and a local HTTP game fixture, never the live realm. They verify registration, authoritative game login, migrations, conflicts, password changes, revoked sessions, rate limits, outage recovery and existing social features. Live AzerothCore registration and native launcher acceptance remain deployment checks.
 
 ### Game server endpoints
 
@@ -554,7 +564,7 @@ ui/                   the interface (no build step)
   app.js              shell, news, social panel, profile, settings, armory, database, tools
   game.js             game account, characters, images, presence
   stats.js            Stats tab
-  pages.js            Community, Patch Notes, story reader, notifications, friends-panel collapse, profile link
+  pages.js            Community, Patch Notes, story reader, notifications, friends-panel collapse
   chat.* chat-media.js  the chat window
 server-modules/mod-launcher-api/   AzerothCore module (game account, characters, live armory/database)
 tools/                manifest builder, delivery tests, add-on catalog builder, release publisher, branding
@@ -576,7 +586,7 @@ Character portraits are read at runtime from the player's own client files (the 
 | Add-ons page is empty | `addons\catalog.json` is missing from the folder the CDN serves. Run `tools/build-addon-catalog.mjs`. |
 | Patch Notes says *No patch notes have been published yet* | `patchnotes.md` is missing from the CDN root, or the CDN is serving a different root. Check the launch script's `/check` output. |
 | Launcher does not offer an update | `launcher-updates\latest.json` is older, or the installer was built without the signing key (no `.sig`). Installs older than the current key must be reinstalled manually. |
-| Profile will not link to the game account | Sign into the game account first; the CDN must reach the game server at `http://127.0.0.1:8095` (set `GAME_API_URL` for the CDN if it is elsewhere). Another profile may already own that game account. |
+| Cannot sign in or finish account setup | The CDN must reach the game server through `GAME_API_URL`. Use game credentials. If asked to verify an old launcher profile, expand the migration option and enter its previous credentials once. If registration already created the game account, switch to Sign in. |
 | Build fails with "no space on device" | Free disk, or set `CARGO_TARGET_DIR` to another drive. |
 | Installers build but no `.sig` appears | `TAURI_SIGNING_PRIVATE_KEY` is not set in that terminal (use that exact name; `..._PATH` is the old Tauri 1 variable). |
 | Discord presence never shows | No Discord application ID was compiled in; set `ESTERIA_DEFAULT_DISCORD_CLIENT` before building. |
