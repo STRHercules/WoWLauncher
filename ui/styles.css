@@ -495,10 +495,12 @@ body.mode-community .feed-section .section-heading h2::after { content: " · com
 textarea { font: inherit; }
 /* Close / play behaviour prompts */
 .choice-dialog { width: min(430px, calc(100vw - 40px)); }
-.choice-copy { margin: 0 0 12px; color: #96a0ab; font-size: 12px; }
+.choice-dialog .choice-copy { margin: 0 0 12px; color: #96a0ab; font-size: 12px; }
 .choice-actions { display: grid; gap: 8px; }
 .choice-actions button { height: 34px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.choice-remember { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted); font-size: 11px; }
+.choice-dialog .dialog-actions { align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 0; }
+.choice-remember { display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.choice-remember input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .game-tab img { filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); }
 
 /* Game account, images, pause button */
