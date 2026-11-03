@@ -1,6 +1,6 @@
 [package]
 name = "esteria-launcher"
-version = "0.8.5"
+version = "0.8.6"
 description = "Desktop launcher for Esteria"
 authors = ["Esteria"]
 edition = "2021"
@@ -19,6 +19,7 @@ hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tokio = { version = "1", features = ["fs", "io-util", "net", "time", "macros", "rt-multi-thread"] }
 futures-util = "0.3"
+librqbit = { version = "9.1", default-features = false, features = ["rust-tls"] }
 rfd = "0.15"
 url = "2"
 fs2 = "0.4"

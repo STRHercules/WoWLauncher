@@ -24,6 +24,7 @@ use tokio::time::timeout;
 use url::Url;
 
 mod extras;
+mod torrent;
 
 const SETTINGS_DIR: &str = "EsteriaLauncher";
 const SETTINGS_FILE: &str = "settings.json";
@@ -74,7 +75,7 @@ struct LauncherSettings {
     /// Base address of the mod-launcher-api game server module (account, characters, presence).
     #[serde(default = "default_game_api")]
     game_api: String,
-    /// Optional server-supplied client download: direct .zip link or magnet link. The CDN manifest stays the default.
+    /// Optional native client download: HTTP(S) ZIP/torrent or magnet. The CDN manifest stays the default.
     #[serde(default)]
     client_source: String,
     #[serde(default = "default_true")]
@@ -2974,7 +2975,6 @@ fn main() {
             repair_installation,
             extras::pause_download,
             extras::install_from_source,
-            extras::open_torrent_link,
             extras::list_screenshots,
             extras::read_screenshot,
             extras::load_screenshot_meta,

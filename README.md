@@ -65,10 +65,20 @@ Built with **Tauri 2** (Rust), plain HTML/CSS/JavaScript, and a small **AzerothC
 ### Installing and keeping the client healthy
 
 1. Click the gear next to **Play** and choose an install folder. It can be empty, or an existing Esteria client the launcher will adopt.
-2. Press **Install**. Downloads are resumable, verified with SHA-256, show speed and ETA, and can be **paused** and resumed from the sidebar.
+2. Press **Install**. Downloads are resumable, show speed and ETA, and can be **paused** and resumed from the sidebar. CDN files are verified with SHA-256; torrents verify their piece hashes.
 3. If files go missing or corrupt, the launcher says how many need repair; press **Update** to fix just those.
 
-An optional **Client download link** (in settings) lets you seed a fresh install from a direct `.zip`, or from a `magnet:` link that opens in your torrent client; the CDN then tops it up.
+The optional **Client download link** in settings accepts an HTTP(S) `.zip`, an HTTP(S) `.torrent`, or a `magnet:` link. All download inside the launcher; no external torrent app is needed. Leave it blank for a CDN-only install. Once the source install finishes, the configured CDN manifest verifies and updates it as usual.
+
+Torrents must contain one client folder with `Wow.exe` (nested folders are supported), or a single client ZIP. Pause stops torrent traffic; Resume or restarting the launcher and pressing Install rechecks partial files and downloads missing or corrupt pieces. Sharing stops when the download finishes. Partial downloads and cached metadata stay under the selected install folder's `.launcher/source/` until installation succeeds. Switching source links uses separate staging folders. Torrent transfers share pieces with peers while downloading and require reachable seeders.
+
+For Esteria Live, paste this into **Settings → Client download link**, choose an install folder, save, and press **Install**:
+
+```text
+magnet:?xt=urn:btih:98cfaabfd088aeadc9835e5bc0650032ce39f821&dn=Esteria%20-%20Live&xl=153695751750&tr=udp%3A%2F%2Ftracker.opentrackr.com%3A1337%2Fannounce
+```
+
+This link advertises approximately 154 GB (143 GiB). Allow enough disk space for the client; a ZIP source also needs space for extraction. The CDN remains the default unless a client link is configured.
 
 ### Playing
 

@@ -645,15 +645,8 @@ $('#pauseDownloadButton').addEventListener('click', async () => {
   }
 });
 
-// Returns 'external' when the download was handed to a torrent client and the launcher should stop.
 async function installFromClientSource() {
   const source = String(appState.settings.clientSource || '').trim();
-  if (!source || appState.clientInstalled) return 'skipped';
-  if (/^magnet:/i.test(source) || /\.torrent(\?|#|$)/i.test(source)) {
-    await invokeTauri(/^magnet:/i.test(source) ? 'open_torrent_link' : 'open_external_url', { url: source });
-    showToast('Opened in your torrent client. Set its download folder to your Esteria install folder, then use Verify when it finishes.', 9000);
-    return 'external';
-  }
+  if (!source || appState.clientInstalled) return;
   await invokeTauri('install_from_source', { settings: appState.settings });
-  return 'done';
 }

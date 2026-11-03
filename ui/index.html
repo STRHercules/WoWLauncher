@@ -615,8 +615,8 @@
         <p>Address of the server's mod-launcher-api: game account creation, character management, and in-game presence.</p>
 
         <label for="clientSourceInput">Client download link (optional)</label>
-        <input id="clientSourceInput" type="text" placeholder="https://example.com/client.zip or magnet:?xt=..." spellcheck="false" />
-        <p>Leave blank to use the CDN. A .zip link is downloaded and extracted into an empty install folder before the CDN fills in the rest. A magnet link opens in your torrent client; set its download folder to the install folder, then press Verify.</p>
+        <input id="clientSourceInput" type="text" placeholder="https://example.com/client.zip, client.torrent or magnet:?xt=..." spellcheck="false" />
+        <p>Leave blank to use the CDN. HTTP(S) .zip links, .torrent links and magnet links download inside the launcher, with pause and resume. Torrents must contain the client files or a single client ZIP. Once installed, the CDN checks for updates. Torrent sharing stops when paused or finished.</p>
 
         <label for="armorySourceInput">Armory snapshot</label>
         <input id="armorySourceInput" type="text" placeholder="https://cdn.example.com/api/v2/armory/characters.json" spellcheck="false" />

@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 
 pub static PAUSED: AtomicBool = AtomicBool::new(false);
 pub const PAUSED_MESSAGE: &str = "Download paused.";
+static SOURCE_INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tauri::command]
 pub fn pause_download() {
@@ -14,10 +15,17 @@ pub fn pause_download() {
 /// Moves `src` into `dst`, merging directories and replacing files.
 fn move_tree(src: &Path, dst: &Path) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|error| format!("Could not create {}: {error}", dst.display()))?;
-    for entry in fs::read_dir(src).map_err(|error| format!("Could not read {}: {error}", src.display()))? {
-        let entry = entry.map_err(|error| error.to_string())?;
+    let mut entries = fs::read_dir(src).map_err(|error| format!("Could not read {}: {error}", src.display()))?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+    // Wow.exe marks an installed client; promote it only after all other files succeed.
+    entries.sort_by_key(|entry| entry.file_name().eq_ignore_ascii_case("Wow.exe"));
+    for entry in entries {
         let from = entry.path();
         let to = dst.join(entry.file_name());
+        if entry.file_name().eq_ignore_ascii_case(".launcher") || entry.file_type().map_err(|error| error.to_string())?.is_symlink()
+            || fs::symlink_metadata(&to).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return Err(format!("Cannot install reserved paths or links: {}", from.display()));
+        }
         if from.is_dir() && !to.is_file() {
             move_tree(&from, &to)?;
         } else {
@@ -30,40 +38,76 @@ fn move_tree(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Downloads a server-supplied .zip of the whole client (resumable, pausable) into an empty install folder.
+#[cfg(test)]
+#[test]
+fn source_promotion_preserves_launcher_state_and_installs_executable_last() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let target = temp.path().join("installed");
+    fs::create_dir_all(source.join(".launcher")).unwrap();
+    fs::create_dir_all(target.join(".launcher")).unwrap();
+    fs::write(source.join("Wow.exe"), b"client").unwrap();
+    fs::write(target.join(".launcher/state.json"), b"keep").unwrap();
+    assert!(move_tree(&source, &target).is_err());
+    assert!(!target.join("Wow.exe").exists());
+    assert_eq!(fs::read(target.join(".launcher/state.json")).unwrap(), b"keep");
+    fs::remove_dir(source.join(".launcher")).unwrap();
+    fs::create_dir_all(source.join("Data")).unwrap();
+    fs::write(source.join("Data/patch.mpq"), b"patch").unwrap();
+    move_tree(&source, &target).unwrap();
+    assert_eq!(fs::read(target.join("Wow.exe")).unwrap(), b"client");
+    assert_eq!(fs::read(target.join("Data/patch.mpq")).unwrap(), b"patch");
+}
+
+/// Downloads a server-supplied ZIP or torrent of the whole client (resumable, pausable).
 /// Returns false when a client is already present. The manifest repair pass afterwards tops up anything missing.
 #[tauri::command]
 pub async fn install_from_source(app: tauri::AppHandle, settings: LauncherSettings) -> Result<bool, String> {
+    let _install = SOURCE_INSTALL.try_lock().map_err(|_| "A client source install is already running.".to_string())?;
     let url = Url::parse(settings.client_source.trim()).map_err(|error| format!("Invalid client link: {error}"))?;
-    if !matches!(url.scheme(), "http" | "https") || !url.path().to_ascii_lowercase().ends_with(".zip") {
-        return Err("A direct client link must be an http(s) address ending in .zip.".to_string());
+    let torrent = torrent::is_torrent_source(&url);
+    if !torrent && !(matches!(url.scheme(), "http" | "https") && url.path().to_ascii_lowercase().ends_with(".zip")) {
+        return Err("Use an HTTP(S) .zip or .torrent link, or a magnet link.".to_string());
     }
     let root = game_root_from_settings(&settings, true)?;
     if root.join("Wow.exe").is_file() {
         return Ok(false);
     }
     PAUSED.store(false, Ordering::SeqCst);
-    let work = root.join(".launcher").join("source");
+    let work = root.join(".launcher").join("source").join(hex::encode(Sha256::digest(url.as_str().as_bytes())));
     fs::create_dir_all(&work).map_err(|error| format!("Could not create {}: {error}", work.display()))?;
-    let archive = work.join("client.zip");
-    let total = match reqwest::Client::new().head(url.clone()).send().await {
-        Ok(response) => response.content_length().unwrap_or(0),
-        Err(_) => 0,
-    };
     let started = Instant::now();
-    copy_or_download_resumable(DownloadSource::Remote(url), &archive, None, |bytes| {
-        emit_patch_progress(&app, "downloading-bundle", "client.zip", 0, 1, bytes, total, started)
-    })
-    .await?;
+    let downloaded = if torrent {
+        torrent::download(url.as_str(), &work, &PAUSED, |phase, done, total, speed| {
+            let _ = app.emit("patch-progress", PatchProgress {
+                phase: phase.to_string(), current_file: String::new(), completed_files: 0, total_files: 1,
+                percent: if total > 0 { (done.saturating_mul(100) / total).min(100) as u8 } else { 0 },
+                bytes_done: done, bytes_total: total, bytes_per_second: speed,
+                eta_seconds: if speed > 0 && total > done { Some((total - done) / speed) } else { None },
+            });
+        }).await?
+    } else {
+        let archive = work.join("client.zip");
+        let total = match reqwest::Client::new().head(url.clone()).send().await {
+            Ok(response) => response.content_length().unwrap_or(0),
+            Err(_) => 0,
+        };
+        copy_or_download_resumable(DownloadSource::Remote(url), &archive, None, |bytes| {
+            emit_patch_progress(&app, "downloading-bundle", "client.zip", 0, 1, bytes, total, started)
+        }).await?;
+        archive
+    };
 
-    emit_patch_progress(&app, "installing-bundle", "client.zip", 0, 1, total, total, started);
-    let staged = work.join("extracted");
-    let (zip_path, staged_path) = (archive.clone(), staged.clone());
-    let extracted = tokio::task::spawn_blocking(move || extract_zip_safely(&zip_path, &staged_path))
-        .await
-        .map_err(|error| error.to_string())?;
-    let _ = fs::remove_file(&archive); // a bad archive must not poison the next resume
-    extracted?;
+    emit_patch_progress(&app, "installing-bundle", "client", 0, 1, 0, 0, started);
+    let staged = if downloaded.is_file() {
+        let staged = work.join("extracted");
+        let (zip_path, staged_path) = (downloaded.clone(), staged.clone());
+        let extracted = tokio::task::spawn_blocking(move || extract_zip_safely(&zip_path, &staged_path))
+            .await.map_err(|error| error.to_string())?;
+        if extracted.is_err() { let _ = fs::remove_file(&downloaded); }
+        extracted?;
+        staged
+    } else { downloaded };
 
     let mut source = staged.clone();
     if !source.join("Wow.exe").is_file() {
@@ -77,20 +121,6 @@ pub async fn install_from_source(app: tauri::AppHandle, settings: LauncherSettin
     move_tree(&source, &root)?;
     let _ = fs::remove_dir_all(&work);
     Ok(true)
-}
-
-#[tauri::command]
-pub fn open_torrent_link(url: String) -> Result<(), String> {
-    let trimmed = url.trim();
-    if !trimmed.starts_with("magnet:?") || trimmed.len() > 4096 {
-        return Err("Only magnet: links can be handed to a torrent client.".to_string());
-    }
-    Command::new("rundll32")
-        .arg("url.dll,FileProtocolHandler")
-        .arg(trimmed)
-        .spawn()
-        .map_err(|error| format!("Could not open your torrent client: {error}"))?;
-    Ok(())
 }
 
 #[derive(Serialize)]

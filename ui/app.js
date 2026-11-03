@@ -2176,11 +2176,7 @@ async function repairInstallation() {
   setUpdateStatus(appState.clientInstalled ? 'Preparing update…' : 'Preparing install…', 0);
 
   try {
-    const source = await installFromClientSource();
-    if (source === 'external') {
-      setUpdateStatus('Waiting for your torrent client');
-      return;
-    }
+    await installFromClientSource();
     if (!appState.settings.manifestSource) {
       appState.clientInstalled = true;
       appState.needsRepair = false;
@@ -2223,7 +2219,12 @@ async function registerPatchProgressListener() {
       const progress = event.payload;
       if (!progress || !appState.updateRunning) return;
       const fileName = progress.currentFile ? progress.currentFile.split(/[\\/]/).pop() : '';
-      const verb = progress.phase === 'downloading'
+      const torrentVerbs = {
+        'resolving-torrent': 'Finding torrent peers and metadata',
+        'checking-torrent': 'Checking torrent files',
+        'downloading-torrent': 'Downloading torrent',
+      };
+      const verb = torrentVerbs[progress.phase] || (progress.phase === 'downloading'
         ? 'Downloading'
         : progress.phase === 'downloading-bundle'
           ? 'Downloading bundle'
@@ -2231,15 +2232,15 @@ async function registerPatchProgressListener() {
             ? 'Installing bundle'
             : progress.phase === 'checking'
               ? 'Checking'
-              : 'Finishing';
+              : 'Finishing');
       let detail = '';
-      if ((progress.phase === 'downloading' || progress.phase === 'downloading-bundle') && progress.bytesTotal > 0) {
+      if (['downloading', 'downloading-bundle', 'downloading-torrent'].includes(progress.phase) && progress.bytesTotal > 0) {
         const parts = [`${formatBytes(progress.bytesDone)} / ${formatBytes(progress.bytesTotal)}`];
         if (progress.bytesPerSecond > 0) parts.push(`${formatBytes(progress.bytesPerSecond)}/s`);
         if (progress.etaSeconds) parts.push(`${formatEta(progress.etaSeconds)} left`);
         detail = parts.join(' · ');
       }
-      setUpdateStatus(fileName ? `${verb} ${fileName}` : 'Finishing update…', progress.percent, detail);
+      setUpdateStatus(fileName ? `${verb} ${fileName}` : verb, progress.percent, detail);
     });
   } catch (error) {
     console.warn('Could not register patch progress listener', error);
